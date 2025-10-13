@@ -43,7 +43,7 @@ Este programa foi projetado para otimizar seu trabalho com grandes volumes de da
 Navegue pelos tópicos no menu à esquerda para aprender a usar cada parte da ferramenta.""",
     "1. Configurações Globais": """**1. Configurações Globais**
 
-Esta seção contém as configurações essenciais que são compartilhadas entre as duas ferramentas. Configure-as uma vez para usar em ambas as abas.
+Esta seção, localizada no topo da janela, contém as configurações essenciais que são compartilhadas entre as duas ferramentas. Configure-as uma vez para usar em ambas as abas.
 
 - **Selecionar Planilha...**
   Abre uma janela para selecionar o arquivo de dados de origem. Suporta os formatos `.xlsx`, `.xls` e `.csv`. Uma vez selecionado, o arquivo fica disponível para ambas as ferramentas.
@@ -71,13 +71,13 @@ Cada linha que você adiciona é uma condição para **remover** dados. Se uma l
 - **Coluna:** O nome da coluna onde o filtro será aplicado. **Dica:** você pode aplicar a mesma regra a várias colunas de uma vez, separando seus nomes por ponto e vírgula (`;`).
 
 - **Operador e Valor:** Operadores ">", "<", "≥", "≤", "=", "Não é igual a" definem a lógica da regra. São utilizados para definir os intervalos que serão considerados para que os dados sejam **excluídos**.
-**Dica:**a palavra-chave `vazio` é um recurso poderoso:
+**Dica: **a palavra-chave `vazio` é um recurso poderoso:
     - **Cenário 1: Excluir linhas com dados FALTANTES.**
         - **Configuração:** `Coluna: "Exame_X"`, `Operador: "é igual a"`, `Valor: "vazio"`.
     - **Cenário 2: Manter apenas linhas com dados EXISTENTES.**
         - **Configuração:** `Coluna: "Observações"`, `Operador: "Não é igual a"`, `Valor: "vazio"`.
 
-- **Lógica Composta** Expande a regra para criar condições `E` / `OU`, quando o usuário quer inserir intervalos para exclusão.
+- **Regra Composta (Caixa)** Expande a regra para criar condições `E` / `OU`, quando o usuário quer inserir intervalos para exclusão.
 
 - **Condição:** Permite aplicar um filtro secundário. A regra principal só será aplicada às linhas que também atenderem às condições de sexo e/ou idade.
 
@@ -262,6 +262,8 @@ class DataProcessor:
             if sex_name: name_parts.append(sex_name)
         return "_".join(part for part in name_parts if part)
 
+# --- FUNÇÕES AUXILIARES ---
+
 @st.cache_data
 def load_dataframe(uploaded_file):
     if uploaded_file is None: return None
@@ -286,6 +288,8 @@ def to_excel(df):
 def to_csv(df):
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
+# --- FUNÇÕES DE INTERFACE ---
+
 def draw_filter_rules():
     st.markdown("""<style>
         .stButton>button { padding: 0.25rem 0.3rem; font-size: 0.8rem; white-space: nowrap; }
@@ -309,8 +313,8 @@ E: Exclui valores dentro de um intervalo, sem os extremos. Ex: > 10 E < 20 remov
     tooltip_text_html = tooltip_text.replace('\n', '&#10;')
     header_cols[5].markdown(f"**Lógica Composta** <span title='{tooltip_text_html}'>&#9432;</span>", unsafe_allow_html=True)
     
-    header_cols[6].markdown("**Condição** <span title='Use quando um critério de exclusão específico (ex: intervalo de referência) muda conforme a idade ou o sexo do paciente.'>&#9432;</span>", unsafe_allow_html=True)
-    header_cols[7].markdown("**Ações** <span title='Utilize para duplicar uma regra'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[6].markdown("**Condição** <span title='Ative a opção de filtrar por idade ou sexo esta coluna em específico'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[7].markdown("**Ações** <span title='Utilize para duplicar ou excluir uma regra'>&#9432;</span>", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top: -0.5rem; margin-bottom: 0.5rem;'>", unsafe_allow_html=True)
 
     for i, rule in enumerate(st.session_state.filter_rules):
@@ -322,6 +326,7 @@ E: Exclui valores dentro de um intervalo, sem os extremos. Ex: > 10 E < 20 remov
             rule['p_op1'] = cols[2].selectbox("Operador 1", ops, index=ops.index(rule['p_op1']) if rule.get('p_op1') in ops else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
             rule['p_val1'] = cols[3].text_input("Valor 1", value=rule.get('p_val1', ''), key=f"p_val1_{rule['id']}", label_visibility="collapsed")
             rule['p_expand'] = cols[4].checkbox("+", value=rule.get('p_expand', False), key=f"p_expand_{rule['id']}", label_visibility="collapsed")
+            
             with cols[5]:
                 if rule['p_expand']:
                     exp_cols = st.columns(3)
@@ -329,8 +334,10 @@ E: Exclui valores dentro de um intervalo, sem os extremos. Ex: > 10 E < 20 remov
                     rule['p_op_central'] = exp_cols[0].selectbox("Lógica", ops_central, index=ops_central.index(rule['p_op_central']) if rule.get('p_op_central') in ops_central else 0, key=f"p_op_central_{rule['id']}", label_visibility="collapsed")
                     rule['p_op2'] = exp_cols[1].selectbox("Operador 2", ops, index=ops.index(rule.get('p_op2', '>')) if rule.get('p_op2') in ops else 0, key=f"p_op2_{rule['id']}", label_visibility="collapsed")
                     rule['p_val2'] = exp_cols[2].text_input("Valor 2", value=rule.get('p_val2', ''), key=f"p_val2_{rule['id']}", label_visibility="collapsed")
+
             with cols[6]:
                 rule['c_check'] = st.checkbox("Condição", value=rule.get('c_check', False), key=f"c_check_{rule['id']}")
+            
             action_cols = cols[7].columns(2)
             if action_cols[0].button("Clonar", key=f"clone_{rule['id']}"):
                 new_rule = copy.deepcopy(rule)
@@ -340,10 +347,12 @@ E: Exclui valores dentro de um intervalo, sem os extremos. Ex: > 10 E < 20 remov
             if action_cols[1].button("X", key=f"del_filter_{rule['id']}"):
                 st.session_state.filter_rules.pop(i)
                 st.rerun()
+
             if rule['c_check']:
                 with st.container():
                     cond_cols = st.columns([0.55, 0.5, 1, 3, 1, 3])
                     cond_cols[1].markdown("↳")
+                    
                     rule['c_idade_check'] = cond_cols[2].checkbox("Idade", value=rule.get('c_idade_check', False), key=f"c_idade_check_{rule['id']}")
                     with cond_cols[3]:
                         if rule['c_idade_check']:
@@ -354,6 +363,7 @@ E: Exclui valores dentro de um intervalo, sem os extremos. Ex: > 10 E < 20 remov
                             age_cols[2].write("E")
                             rule['c_idade_op2'] = age_cols[3].selectbox("Op Idade 2", ops_idade, index=ops_idade.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_idade else 0, key=f"c_idade_op2_{rule['id']}", label_visibility="collapsed")
                             rule['c_idade_val2'] = age_cols[4].text_input("Val Idade 2", value=rule.get('c_idade_val2',''), key=f"c_idade_val2_{rule['id']}", label_visibility="collapsed")
+                    
                     rule['c_sexo_check'] = cond_cols[4].checkbox("Sexo", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule['id']}")
                     with cond_cols[5]:
                         if rule['c_sexo_check']:
@@ -412,14 +422,25 @@ def main():
         if df is not None: column_options = [""] + df.columns.tolist()
         
         c1, c2, c3 = st.columns(3)
-        with c1:
-            st.selectbox("Coluna Idade", options=column_options, key="col_idade")
-            st.text_input("Valor para masculino (legenda)", value="Masculino", key="val_masculino_legend")
-        with c2:
+        with c1: 
+            st.selectbox("Coluna Idade", options=column_options, key="col_idade", index=column_options.index("Idade") if "Idade" in column_options else 0)
+        with c2: 
             st.selectbox("Sexo/Gênero", options=column_options, key="col_sexo")
-            st.text_input("Valor para feminino (legenda)", value="Feminino", key="val_feminino_legend")
-        with c3:
+        with c3: 
             st.selectbox("Formato de Saída", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
+
+        sex_column_values = []
+        if df is not None and st.session_state.col_sexo:
+            try:
+                sex_column_values = [""] + df[st.session_state.col_sexo].dropna().unique().tolist()
+            except KeyError:
+                st.warning(f"Coluna '{st.session_state.col_sexo}' não encontrada. Selecione a coluna correta.")
+        
+        c4, c5 = st.columns(2)
+        with c4:
+            st.selectbox("Sexo/Gênero (1)", options=sex_column_values, key="val_masculino")
+        with c5:
+            st.selectbox("Sexo/Gênero (2)", options=sex_column_values, key="val_feminino")
 
     tab_filter, tab_stratify = st.tabs(["2. Ferramenta de Filtro", "3. Ferramenta de Estratificação"])
 
@@ -470,12 +491,12 @@ def main():
                         age_rules = [r for r in st.session_state.stratum_rules if r.get('val1')]
                         sex_rules = []
                         if stratify_male:
-                            val_m = st.session_state.val_masculino_text
-                            if not val_m: st.error("Defina o valor para 'masculino' nas Configurações Globais."); st.stop()
+                            val_m = st.session_state.val_masculino
+                            if not val_m: st.error("Selecione o valor para 'Sexo/Gênero (1)' nas Configurações Globais."); st.stop()
                             sex_rules.append({'value': val_m, 'name': 'Male'})
                         if stratify_female:
-                            val_f = st.session_state.val_feminino_text
-                            if not val_f: st.error("Defina o valor para 'feminino' nas Configurações Globais."); st.stop()
+                            val_f = st.session_state.val_feminino
+                            if not val_f: st.error("Selecione o valor para 'Sexo/Gênero (2)' nas Configurações Globais."); st.stop()
                             sex_rules.append({'value': val_f, 'name': 'Female'})
                         strata_config = {'ages': age_rules, 'sexes': sex_rules}
                         global_config = {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}
