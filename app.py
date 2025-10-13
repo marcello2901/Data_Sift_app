@@ -78,7 +78,7 @@ Cada linha que você adiciona é uma condição para **remover** dados. Se uma l
     - **Cenário 2: Manter apenas linhas com dados EXISTENTES.**
         - **Configuração:** `Coluna: "Observações"`, `Operador: "Não é igual a"`, `Valor: "vazio"`.
 
-- **Regra Composta (Caixa)** Expande a regra para criar condições `E` / `OU`, quando o usuário quer inserir intervalos para exclusão.
+- **Regra Composta (Caixa)** Expande a regra para criar condições `E` / `OU`/`ENTRE`, quando o usuário quer inserir intervalos para exclusão. **Dica:** Para utilizar a condição `ENTRE`, o usuário deve deixar a configuração da regra sem operadores (">", "<", "≥", "≤", "=", "Não é igual a").
 
 - **Condição:** Permite aplicar um filtro secundário. A regra principal só será aplicada às linhas que também atenderem às condições de sexo e/ou idade.
 
