@@ -34,9 +34,6 @@ Esta seção, localizada no topo da janela, contém as configurações essenciai
 - **Selecionar Planilha...**
   Abre uma janela para selecionar o arquivo de dados de origem. Suporta os formatos `.xlsx`, `.xls` e `.csv`. Uma vez selecionado, o arquivo fica disponível para ambas as ferramentas.
 
-- **Selecionar Pasta de Saída...**
-  No Streamlit, os arquivos são gerados e disponibilizados para download direto no navegador. Não há seleção de pasta de saída.
-
 - **Coluna Idade / Coluna Sexo**
   Campos para especificar o nome **exato** do cabeçalho da coluna em sua planilha. **Atenção:** O nome deve ser idêntico, incluindo maiúsculas e minúsculas (ex: "Idade" é diferente de "idade").
 
@@ -44,7 +41,10 @@ Esta seção, localizada no topo da janela, contém as configurações essenciai
   Campos para definir o valor exato que representa cada sexo na sua planilha (ex: 'M', 'Masculino'). É crucial para o funcionamento correto da "Ferramenta de Estratificação".
 
 - **Formato de Saída**
-  Menu de seleção para escolher o formato dos arquivos gerados. O padrão é `.csv`. Escolha `Excel (.xlsx)` para maior compatibilidade com o Microsoft Excel ou `CSV (.csv)` para um formato mais leve e universal.""",
+  Menu de seleção para escolher o formato dos arquivos gerados. O padrão é `.csv`. Escolha `Excel (.xlsx)` para maior compatibilidade com o Microsoft Excel ou `CSV (.csv)` para um formato mais leve e universal."""
+
+- **Download do arquivo de saída**
+  Após a geração da planilha filtrada, um botão de nome "Download da Planilha Filtrada" ficará disponível, permitindo desta nova planilha.,
     "2. Ferramenta de Filtro": """**2. Ferramenta de Filtro**
 
 O objetivo desta ferramenta é **"limpar"** sua planilha, **removendo** linhas que correspondam a critérios específicos. O resultado é um **único arquivo** contendo apenas os dados que "sobreviveram" aos filtros.
