@@ -19,7 +19,7 @@ st.set_page_config(layout="wide", page_title="Análise de Planilhas")
 
 # --- CONSTANTES E DADOS ---
 MANUAL_CONTENT = {
-    "Introdução": """**Bem-vindo à Ferramenta de Análise de Planilhas!**
+    "Introdução": """**Bem-vindo à Ferramenta de Filtros de Planilhas!**
 
 Este programa foi projetado para otimizar seu trabalho com grandes volumes de dados, oferecendo duas funcionalidades principais:
 
