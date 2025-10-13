@@ -71,8 +71,8 @@ Cada linha que você adiciona é uma condição para **remover** dados. Se uma l
 
 - **Coluna:** O nome da coluna onde o filtro será aplicado. **Dica:** você pode aplicar a mesma regra a várias colunas de uma vez, separando seus nomes por ponto e vírgula (`;`).
 
-- **Operador e Valor:** Operadores ">", "<", "≥", "≤", "=", "Não é igual a" definem a lógica da regra. São utilizados para definir os intervalos que serão considerados para que os dados sejam **excluídos.
-Dica: ** a palavra-chave `vazio` é um recurso poderoso:
+- **Operador e Valor:** Operadores ">", "<", "≥", "≤", "=", "Não é igual a" definem a lógica da regra. São utilizados para definir os intervalos que serão considerados para que os dados sejam **excluídos**.
+**Dica:** a palavra-chave `vazio` é um recurso poderoso:
     - **Cenário 1: Excluir linhas com dados FALTANTES.**
         - **Configuração:** `Coluna: "Exame_X"`, `Operador: "é igual a"`, `Valor: "vazio"`.
     - **Cenário 2: Manter apenas linhas com dados EXISTENTES.**
