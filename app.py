@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.2 - Reimplementação das funções 'Clonar' e 'Condição' para Streamlit
+# Versão 1.3 - Atualização do texto da LGPD
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -18,19 +18,23 @@ import copy
 st.set_page_config(layout="wide", page_title="Análise de Planilhas")
 
 # --- CONSTANTES E DADOS ---
-TERMO_LGPD = {
-        """Esta ferramenta foi projetada para processar e filtrar dados de planilhas. "
-        "É possível que os arquivos carregados por você contenham dados pessoais sensíveis "
-        "(como nome completo, data de nascimento, CPF, informações de saúde, etc.), cujo tratamento é regulado pela "
-        "Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).\n\n"
-        "É de sua inteira responsabilidade garantir que todos os dados utilizados nesta ferramenta estejam em "
-        "conformidade com a LGPD. Recomendamos fortemente que você utilize apenas dados previamente "
-        "anonimizados para proteger a privacidade dos titulares dos dados.\n\n"
-        "A responsabilidade sobre a natureza dos dados processados é exclusivamente sua.\n\n"
-        "Para prosseguir, você deve confirmar que os dados a serem utilizados foram devidamente tratados e anonimizados."""
-}
+TERMO_LGPD = """
+Esta ferramenta foi projetada para processar e filtrar dados de planilhas.
+É possível que os arquivos carregados por você contenham dados pessoais sensíveis
+(como nome completo, data de nascimento, CPF, informações de saúde, etc.), cujo tratamento é regulado pela
+Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).
+
+É de sua inteira responsabilidade garantir que todos os dados utilizados nesta ferramenta estejam em
+conformidade com a LGPD. Recomendamos fortemente que você utilize apenas dados previamente
+anonimizados para proteger a privacidade dos titulares dos dados.
+
+A responsabilidade sobre a natureza dos dados processados é exclusivamente sua.
+
+Para prosseguir, você deve confirmar que os dados a serem utilizados foram devidamente tratados e anonimizados.
+"""
+
 MANUAL_CONTENT = {
-    "Introdução": """**Bem-vindo à Ferramenta de Filtros de Planilhas!**
+    "Introdução": """**Bem-vindo à Ferramenta de Análise de Planilhas!**
 
 Este programa foi projetado para otimizar seu trabalho com grandes volumes de dados, oferecendo duas funcionalidades principais:
 
@@ -45,6 +49,9 @@ Esta seção, localizada no topo da janela, contém as configurações essenciai
 - **Selecionar Planilha...**
   Abre uma janela para selecionar o arquivo de dados de origem. Suporta os formatos `.xlsx`, `.xls` e `.csv`. Uma vez selecionado, o arquivo fica disponível para ambas as ferramentas.
 
+- **Selecionar Pasta de Saída...**
+  No Streamlit, os arquivos são gerados e disponibilizados para download direto no navegador. Não há seleção de pasta de saída.
+
 - **Coluna Idade / Coluna Sexo**
   Campos para especificar o nome **exato** do cabeçalho da coluna em sua planilha. **Atenção:** O nome deve ser idêntico, incluindo maiúsculas e minúsculas (ex: "Idade" é diferente de "idade").
 
@@ -52,10 +59,7 @@ Esta seção, localizada no topo da janela, contém as configurações essenciai
   Campos para definir o valor exato que representa cada sexo na sua planilha (ex: 'M', 'Masculino'). É crucial para o funcionamento correto da "Ferramenta de Estratificação".
 
 - **Formato de Saída**
-  Menu de seleção para escolher o formato dos arquivos gerados. O padrão é `.csv`. Escolha `Excel (.xlsx)` para maior compatibilidade com o Microsoft Excel ou `CSV (.csv)` para um formato mais leve e universal.
-
-- **Download do arquivo de saída**
-  Após a geração da planilha filtrada, um botão ficará disponível, permitindo o download desta nova planilha.""",
+  Menu de seleção para escolher o formato dos arquivos gerados. O padrão é `.csv`. Escolha `Excel (.xlsx)` para maior compatibilidade com o Microsoft Excel ou `CSV (.csv)` para um formato mais leve e universal.""",
     "2. Ferramenta de Filtro": """**2. Ferramenta de Filtro**
 
 O objetivo desta ferramenta é **"limpar"** sua planilha, **removendo** linhas que correspondam a critérios específicos. O resultado é um **único arquivo** contendo apenas os dados que "sobreviveram" aos filtros.
@@ -333,7 +337,6 @@ def draw_filter_rules():
                             rule['c_sexo_val'] = st.text_input("Valor Sexo", value=rule.get('c_sexo_val', ''), key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
         st.markdown("---")
 
-
 def draw_stratum_rules():
     st.markdown("""<style>.stButton>button {padding: 0.25rem 0.3rem; font-size: 0.8rem;}</style>""", unsafe_allow_html=True)
     for i, stratum_rule in enumerate(st.session_state.stratum_rules):
@@ -358,7 +361,7 @@ def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
         st.title("Termos de Uso e Conformidade com a LGPD")
-        st.markdown(TERMO_LGPD["Introdução"], unsafe_allow_html=True)
+        st.markdown(TERMO_LGPD, unsafe_allow_html=True)
         accepted = st.checkbox("Ao confirmar, garanto que os dados inseridos estão anonimizados e que não há presença de dados sensíveis.")
         if st.button("Continuar", disabled=not accepted):
             st.session_state.lgpd_accepted = True
@@ -373,7 +376,7 @@ def main():
         topic = st.selectbox("Selecione um tópico", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
         st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
 
-    st.title("Ferramenta de Filtros de Planilhas v1.2)")
+    st.title("Ferramenta de Análise de Planilhas v1.2 (Streamlit)")
 
     with st.expander("1. Configurações Globais", expanded=True):
         uploaded_file = st.file_uploader("Selecione a planilha", type=['csv', 'xlsx', 'xls'])
@@ -423,7 +426,7 @@ def main():
             st.rerun()
         if st.session_state.get('confirm_stratify', False):
             st.warning("Você confirma que a planilha selecionada é a versão FILTRADA?")
-            c1, c2, c3 = st.columns([1,1,4])
+            c1, c2 = st.columns(2)
             if c1.button("Sim, continuar", use_container_width=True):
                 if df is None: st.error("Por favor, carregue uma planilha primeiro.")
                 else:
