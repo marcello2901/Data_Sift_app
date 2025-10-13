@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.5 - Seleção dinâmica de múltiplos gêneros para estratificação
+# Versão 1.5 - Seleção dinâmica de múltiplos gêneros para estratificação e correção de bugs
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -257,8 +257,6 @@ class DataProcessor:
             if sex_name: name_parts.append(sex_name)
         return "_".join(part for part in name_parts if part)
 
-# --- FUNÇÕES AUXILIARES ---
-
 @st.cache_data
 def load_dataframe(uploaded_file):
     if uploaded_file is None: return None
@@ -282,8 +280,6 @@ def to_excel(df):
 
 def to_csv(df):
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
-
-# --- FUNÇÕES DE INTERFACE ---
 
 def draw_filter_rules(sex_column_values):
     st.markdown("""<style>
@@ -401,9 +397,7 @@ def main():
 
     if 'filter_rules' not in st.session_state: st.session_state.filter_rules = [dict(r) for r in copy.deepcopy(DEFAULT_FILTERS)]
     if 'stratum_rules' not in st.session_state: st.session_state.stratum_rules = [{'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}]
-    if 'gender_selections' not in st.session_state:
-        st.session_state.gender_selections = [{'id': str(uuid.uuid4())}, {'id': str(uuid.uuid4())}]
-
+    
     with st.sidebar:
         st.title("Manual do Usuário")
         topic = st.selectbox("Selecione um tópico", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
@@ -432,23 +426,6 @@ def main():
                 sex_column_values = [""] + df[st.session_state.col_sexo].dropna().unique().tolist()
             except KeyError:
                 st.warning(f"Coluna '{st.session_state.col_sexo}' não encontrada. Selecione a coluna correta.")
-        
-        st.markdown("---")
-        st.write("**Valores de Sexo/Gênero para Estratificar:**")
-        
-        for i, selection in enumerate(st.session_state.gender_selections):
-            cols = st.columns([1, 1, 4])
-            with cols[0]:
-                st.selectbox(f"Sexo/Gênero", options=sex_column_values, key=f"gender_select_{selection['id']}", label_visibility="collapsed")
-            with cols[1]:
-                if i >= 2:
-                    if st.button("X", key=f"del_gender_{selection['id']}"):
-                        st.session_state.gender_selections.pop(i)
-                        st.rerun()
-        
-        if st.button("Adicionar Sexo/Gênero"):
-            st.session_state.gender_selections.append({'id': str(uuid.uuid4())})
-            st.rerun()
 
     tab_filter, tab_stratify = st.tabs(["2. Ferramenta de Filtro", "3. Ferramenta de Estratificação"])
 
@@ -476,6 +453,20 @@ def main():
             st.download_button("Download da Planilha Filtrada", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True)
 
     with tab_stratify:
+        st.header("Opções de Estratificação por Sexo/Gênero")
+        if not sex_column_values:
+            st.info("Carregue uma planilha e selecione a coluna 'Sexo/Gênero' nas Configurações Globais para ver as opções.")
+        else:
+            if 'strat_gender_selection' not in st.session_state:
+                st.session_state.strat_gender_selection = {val: True for val in sex_column_values if val}
+            
+            cols = st.columns(min(len(sex_column_values), 5))
+            col_idx = 0
+            for gender_val in sex_column_values:
+                if not gender_val: continue
+                st.session_state.strat_gender_selection[gender_val] = cols[col_idx].checkbox(str(gender_val), value=st.session_state.strat_gender_selection.get(gender_val, True), key=f"strat_check_{gender_val}")
+                col_idx = (col_idx + 1) % len(cols)
+
         st.header("Definição das Faixas Etárias")
         draw_stratum_rules()
         if st.button("Adicionar Faixa Etária"):
@@ -495,10 +486,10 @@ def main():
                         processor = get_data_processor()
                         age_rules = [r for r in st.session_state.stratum_rules if r.get('val1')]
                         sex_rules = []
-                        for selection in st.session_state.gender_selections:
-                            value = st.session_state.get(f"gender_select_{selection['id']}")
-                            if value:
-                                sex_rules.append({'value': value, 'name': str(value)})
+                        for gender_val, is_selected in st.session_state.get('strat_gender_selection', {}).items():
+                            if is_selected:
+                                sex_rules.append({'value': gender_val, 'name': str(gender_val)})
+                        
                         strata_config = {'ages': age_rules, 'sexes': sex_rules}
                         global_config = {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}
                         stratified_dfs = processor.apply_stratification(df.copy(), strata_config, global_config, progress_bar)
