@@ -18,6 +18,17 @@ import copy
 st.set_page_config(layout="wide", page_title="Análise de Planilhas")
 
 # --- CONSTANTES E DADOS ---
+TERMO_LGPD = {
+        "Esta ferramenta foi projetada para processar e filtrar dados de planilhas. "
+        "É possível que os arquivos carregados por você contenham dados pessoais sensíveis "
+        "(como nome completo, data de nascimento, CPF, informações de saúde, etc.), cujo tratamento é regulado pela "
+        "Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).\n\n"
+        "É de sua inteira responsabilidade garantir que todos os dados utilizados nesta ferramenta estejam em "
+        "conformidade com a LGPD. Recomendamos fortemente que você utilize apenas dados previamente "
+        "anonimizados para proteger a privacidade dos titulares dos dados.\n\n"
+        "A responsabilidade sobre a natureza dos dados processados é exclusivamente sua.\n\n"
+        "Para prosseguir, você deve confirmar que os dados a serem utilizados foram devidamente tratados e anonimizados."
+}
 MANUAL_CONTENT = {
     "Introdução": """**Bem-vindo à Ferramenta de Filtros de Planilhas!**
 
@@ -347,7 +358,7 @@ def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
         st.title("Termos de Uso e Conformidade com a LGPD")
-        st.markdown(MANUAL_CONTENT["Introdução"], unsafe_allow_html=True)
+        st.markdown(TERMO_LGPD["Introdução"], unsafe_allow_html=True)
         accepted = st.checkbox("Ao confirmar, garanto que os dados inseridos estão anonimizados e que não há presença de dados sensíveis.")
         if st.button("Continuar", disabled=not accepted):
             st.session_state.lgpd_accepted = True
