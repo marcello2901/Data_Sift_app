@@ -438,9 +438,9 @@ def main():
         
         c4, c5 = st.columns(2)
         with c4:
-            st.selectbox("Sexo/Gênero (1)", options=sex_column_values, key="val_masculino")
+            st.selectbox("Sexo/Gênero", options=sex_column_values, key="val_sg1")
         with c5:
-            st.selectbox("Sexo/Gênero (2)", options=sex_column_values, key="val_feminino")
+            st.selectbox("Sexo/Gênero", options=sex_column_values, key="val_sg2")
 
     tab_filter, tab_stratify = st.tabs(["2. Ferramenta de Filtro", "3. Ferramenta de Estratificação"])
 
@@ -491,12 +491,12 @@ def main():
                         age_rules = [r for r in st.session_state.stratum_rules if r.get('val1')]
                         sex_rules = []
                         if stratify_male:
-                            val_m = st.session_state.val_masculino
-                            if not val_m: st.error("Selecione o valor para 'Sexo/Gênero (1)' nas Configurações Globais."); st.stop()
+                            val_m = st.session_state.val_sg1
+                            if not val_m: st.error("Selecione o valor para 'Sexo/Gênero' nas Configurações Globais."); st.stop()
                             sex_rules.append({'value': val_m, 'name': 'Male'})
                         if stratify_female:
-                            val_f = st.session_state.val_feminino
-                            if not val_f: st.error("Selecione o valor para 'Sexo/Gênero (2)' nas Configurações Globais."); st.stop()
+                            val_f = st.session_state.val_sg2
+                            if not val_f: st.error("Selecione o valor para 'Sexo/Gênero' nas Configurações Globais."); st.stop()
                             sex_rules.append({'value': val_f, 'name': 'Female'})
                         strata_config = {'ages': age_rules, 'sexes': sex_rules}
                         global_config = {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}
