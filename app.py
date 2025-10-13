@@ -299,7 +299,7 @@ def draw_filter_rules():
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
             # A lógica das colunas foi ajustada para dar mais espaço aos botões de ação
-            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.2]) 
+            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5]) 
             
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             rule['p_col'] = cols[1].text_input("Coluna", value=rule.get('p_col', ''), key=f"p_col_{rule['id']}", label_visibility="collapsed")
