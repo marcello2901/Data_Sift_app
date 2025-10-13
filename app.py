@@ -51,14 +51,9 @@ Esta seção contém as configurações essenciais que são compartilhadas entre
 - **Coluna Idade / Sexo/Gênero**
   Campos para **selecionar** o nome exato do cabeçalho da coluna em sua planilha. As opções na lista aparecem após o upload do arquivo.
 
-- **Sexo/Gênero (Valores)**
-  Após selecionar a coluna de "Sexo/Gênero", estas duas listas serão preenchidas com os valores únicos daquela coluna. Selecione qual valor corresponde ao masculino e qual corresponde ao feminino para a estratificação.
-
 - **Formato de Saída**
   Menu de seleção para escolher o formato dos arquivos gerados. O padrão é `.csv`. Escolha `Excel (.xlsx)` para maior compatibilidade com o Microsoft Excel ou `CSV (.csv)` para um formato mais leve e universal.
-
-- **Download do arquivo de saída**
-  Após a planilha ser filtrada, um botão de download aparecerá, permitindo que o usuário baixe a planilha filtrada.""",
+  """,
     "2. Ferramenta de Filtro": """**2. Ferramenta de Filtro**
 
 O objetivo desta ferramenta é **"limpar"** sua planilha, **removendo** linhas que correspondam a critérios específicos. O resultado é um **único arquivo** contendo apenas os dados que "sobreviveram" aos filtros.
@@ -71,13 +66,13 @@ Cada linha que você adiciona é uma condição para **remover** dados. Se uma l
 - **Coluna:** O nome da coluna onde o filtro será aplicado. **Dica:** você pode aplicar a mesma regra a várias colunas de uma vez, separando seus nomes por ponto e vírgula (`;`).
 
 - **Operador e Valor:** Operadores ">", "<", "≥", "≤", "=", "Não é igual a" definem a lógica da regra. São utilizados para definir os intervalos que serão considerados para que os dados sejam **excluídos**.
-**Dica: **a palavra-chave `vazio` é um recurso poderoso:
+**Dica:**a palavra-chave `vazio` é um recurso poderoso:
     - **Cenário 1: Excluir linhas com dados FALTANTES.**
         - **Configuração:** `Coluna: "Exame_X"`, `Operador: "é igual a"`, `Valor: "vazio"`.
     - **Cenário 2: Manter apenas linhas com dados EXISTENTES.**
         - **Configuração:** `Coluna: "Observações"`, `Operador: "Não é igual a"`, `Valor: "vazio"`.
 
-- **Regra Composta (Caixa)** Expande a regra para criar condições `E` / `OU`, quando o usuário quer inserir intervalos para exclusão.
+- **Lógica Composta** Expande a regra para criar condições `E` / `OU`, quando o usuário quer inserir intervalos para exclusão.
 
 - **Condição:** Permite aplicar um filtro secundário. A regra principal só será aplicada às linhas que também atenderem às condições de sexo e/ou idade.
 
@@ -90,14 +85,14 @@ Diferente do filtro, o objetivo desta ferramenta é **dividir** sua planilha em 
 
 **Funcionamento da Estratificação**
 
-- **Opções de Estratificação por Sexo:**
-  - **[✓] Masculino** e **[✓] Feminino:** Estas caixas controlam a divisão por sexo.
+- **Opções de Estratificação por Sexo/Gênero:**
+  - Após carregar uma planilha e selecionar a coluna "Sexo/Gênero" nas Configurações Globais, esta área mostrará uma caixa de seleção para cada valor único encontrado (ex: Masculino, Feminino, etc.). Marque quais você deseja incluir na estratificação.
 
 - **Definição das Faixas Etárias:**
   - Esta área serve **exclusivamente** para criar os estratos baseados em idade.
 
 - **Gerar Planilhas Estratificadas:**
-  - Inicia o processo de divisão. O número de arquivos gerados será o (`nº de faixas etárias` x `nº de sexos selecionados`).
+  - Inicia o processo de divisão. O número de arquivos gerados será o (`nº de faixas etárias` x `nº de gêneros selecionados`).
   - **Confirmação:** Antes de iniciar, o programa perguntará se você está usando uma planilha já filtrada."""
 }
 DEFAULT_FILTERS = [
@@ -290,7 +285,7 @@ def to_csv(df):
 
 # --- FUNÇÕES DE INTERFACE ---
 
-def draw_filter_rules():
+def draw_filter_rules(sex_column_values):
     st.markdown("""<style>
         .stButton>button { padding: 0.25rem 0.3rem; font-size: 0.8rem; white-space: nowrap; }
         div[data-testid="stTextInput"] input, div[data-testid="stSelectbox"] div[data-baseweb="select"] {
@@ -367,7 +362,7 @@ E: Exclui valores dentro de um intervalo, sem os extremos. Ex: > 10 E < 20 remov
                     rule['c_sexo_check'] = cond_cols[4].checkbox("Sexo", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule['id']}")
                     with cond_cols[5]:
                         if rule['c_sexo_check']:
-                            rule['c_sexo_val'] = st.text_input("Valor Sexo", value=rule.get('c_sexo_val', ''), key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
+                            rule['c_sexo_val'] = st.selectbox("Valor Sexo", options=sex_column_values, index=sex_column_values.index(rule.get('c_sexo_val')) if rule.get('c_sexo_val') in sex_column_values else 0, key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
         st.markdown("---")
 
 def draw_stratum_rules():
@@ -425,7 +420,7 @@ def main():
         
         c1, c2, c3 = st.columns(3)
         with c1: 
-            st.selectbox("Coluna Idade", options=column_options, key="col_idade", index=column_options.index("Idade") if "Idade" in column_options else 0)
+            st.selectbox("Coluna Idade", options=column_options, key="col_idade")
         with c2: 
             st.selectbox("Sexo/Gênero", options=column_options, key="col_sexo")
         with c3: 
@@ -446,7 +441,7 @@ def main():
             with cols[0]:
                 st.selectbox(f"Sexo/Gênero", options=sex_column_values, key=f"gender_select_{selection['id']}", label_visibility="collapsed")
             with cols[1]:
-                if i >= 2: # Só permite deletar a partir do terceiro
+                if i >= 2:
                     if st.button("X", key=f"del_gender_{selection['id']}"):
                         st.session_state.gender_selections.pop(i)
                         st.rerun()
@@ -459,7 +454,7 @@ def main():
 
     with tab_filter:
         st.header("Regras de Exclusão")
-        draw_filter_rules()
+        draw_filter_rules(sex_column_values)
         if st.button("Adicionar Nova Regra de Filtro"):
             st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''})
             st.rerun()
@@ -503,8 +498,7 @@ def main():
                         for selection in st.session_state.gender_selections:
                             value = st.session_state.get(f"gender_select_{selection['id']}")
                             if value:
-                                sex_rules.append({'value': value, 'name': str(value).replace(' ', '_')})
-                        
+                                sex_rules.append({'value': value, 'name': str(value)})
                         strata_config = {'ages': age_rules, 'sexes': sex_rules}
                         global_config = {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}
                         stratified_dfs = processor.apply_stratification(df.copy(), strata_config, global_config, progress_bar)
