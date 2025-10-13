@@ -295,9 +295,7 @@ def draw_filter_rules():
     
     # --- LINHA CORRIGIDA COM ASPAS TRIPLAS ---
     header_cols[5].markdown(f"""**Lógica Composta** <span title='Selecione mais um operador para definir um intervalo
-
 Como utilizar:
-
 **ENTRE:** Exclui valores dentro do intervalo (inclusive).
 
 **Ex:** ENTRE 10 e 20 remove tudo de 10 a 20.
@@ -308,8 +306,7 @@ Como utilizar:
 
 **E:** Exclui valores dentro de um intervalo, sem os extremos.
 
-**Ex:** > 10 E < 20 remove de 11 a 19 (mantém os valores 10 e 20).'>&#9432;</span>""", unsafe_allow_html=True)
-    
+**Ex:** > 10 E < 20 remove de 11 a 19 (mantém os valores 10 e 20).'>&#9432;</span>""", unsafe_allow_html=True)    
     header_cols[6].markdown("**Condição** <span title='Ative a opção de filtrar por idade ou sexo esta coluna em específico'>&#9432;</span>", unsafe_allow_html=True)
     header_cols[7].markdown("**Ações** <span title='Utilize para duplicar uma regra'>&#9432;</span>", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top: -0.5rem; margin-bottom: 0.5rem;'>", unsafe_allow_html=True)
