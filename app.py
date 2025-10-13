@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.0 - Migração para Streamlit (Completa e Corrigida)
+# Versão 1.1 - Migração para Streamlit (Otimizada com Cache e Correções)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,10 +13,10 @@ from typing import List, Dict, Any, Optional
 import io
 import uuid
 
-# --- CONSTANTES E CONFIGURAÇÕES INICIAIS ---
+# --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Análise de Planilhas")
 
-CONFIG_FILE_FILTERS = "config_filtros_v11.json"
+# --- CONSTANTES E DADOS ---
 MANUAL_CONTENT = {
     "Introdução": """**Bem-vindo à Ferramenta de Análise de Planilhas!**
 
@@ -87,9 +87,25 @@ Diferente do filtro, o objetivo desta ferramenta é **dividir** sua planilha em 
 DEFAULT_FILTERS = [
     {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'CAPA.IST', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': '50'},
     {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ferritina.FERRI', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': '600'},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'GLICOSE.GLI', 'p_op1': '<', 'p_val1': '65', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': '200'},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.OBSSV;Hemo.OBSSB;Hemo.OBSSP', 'p_op1': 'Não é igual a', 'p_val1': 'vazio', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ultra-PCR.ULTRAPCR', 'p_op1': '>', 'p_val1': '5', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.#HGB', 'p_op1': '<', 'p_val1': '7,0', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.LEUCO', 'p_op1': '>', 'p_val1': '11000', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Creatinina.CRE', 'p_op1': '>', 'p_val1': '1,5', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Creatinina.eTFG2021', 'p_op1': '<', 'p_val1': '60', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'HBGLI.HBGLI', 'p_op1': '>', 'p_val1': '6,5', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'GLICOSE.GLI', 'p_op1': '>', 'p_val1': '200', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '65'},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'TSH.TSH', 'p_op1': '>', 'p_val1': '10', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '0,01'},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Idade', 'p_op1': '>', 'p_val1': '75', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.OBSSV', 'p_op1': 'Não é igual a', 'p_val1': 'vazio', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.OBSSB', 'p_op1': 'Não é igual a', 'p_val1': 'vazio', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.OBSSP', 'p_op1': 'Não é igual a', 'p_val1': 'vazio', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
 ]
+
+# --- CLASSES DE PROCESSAMENTO (LÓGICA PURA) ---
+
+@st.cache_resource
+def get_data_processor():
+    return DataProcessor()
 
 class DataProcessor:
     OPERATOR_MAP = {'=': '==', 'Não é igual a': '!=', '≥': '>=', '≤': '<='}
@@ -119,12 +135,10 @@ class DataProcessor:
             else:
                 v1_num = float(str(val1).replace(',', '.')); return self._build_single_mask(df[col], op1, v1_num)
         except (ValueError, TypeError): return pd.Series([False] * len(df), index=df.index)
-    
     def apply_filters(self, df: pd.DataFrame, filters_config: List[Dict], global_config: Dict, progress_bar) -> pd.DataFrame:
         df_processado = df.copy()
         active_filters = [f for f in filters_config if f['p_check']]
         total_filters = len(active_filters)
-        
         for i, f_config in enumerate(active_filters):
             progress = (i + 1) / total_filters
             col_name = f_config.get('p_col', 'Regra desconhecida')
@@ -135,29 +149,22 @@ class DataProcessor:
                 if col in df_processado.columns:
                     is_numeric_filter = f_config.get('p_val1', '').lower() != 'vazio'
                     if is_numeric_filter: df_processado[col] = self._safe_to_numeric(df_processado[col])
-            
             combined_mask = pd.Series(True, index=df_processado.index)
             for sub_col in cols_to_check:
                 if sub_col not in df_processado.columns:
                     combined_mask = pd.Series(False, index=df_processado.index); break
                 combined_mask &= self._create_main_mask(df_processado, f_config, sub_col)
-            
             df_processado = df_processado[~combined_mask]
-        
         progress_bar.progress(1.0, text="Filtragem concluída!")
         return df_processado
-
     def apply_stratification(self, df: pd.DataFrame, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
         col_idade = global_config.get('coluna_idade')
         col_sexo = global_config.get('coluna_sexo')
-
         if not (col_idade and col_idade in df.columns):
             st.error(f"Coluna de idade '{col_idade}' não encontrada na planilha."); return {}
         if not (col_sexo and col_sexo in df.columns):
             st.error(f"Coluna de sexo '{col_sexo}' não encontrada na planilha."); return {}
-
         df[col_idade] = self._safe_to_numeric(df[col_idade])
-        
         age_strata = strata_config.get('ages', []); sex_strata = strata_config.get('sexes', [])
         final_strata_to_process = []
         if not age_strata and sex_strata:
@@ -167,7 +174,6 @@ class DataProcessor:
         else:
             for sex_rule in sex_strata:
                 for age_rule in age_strata: final_strata_to_process.append({'age': age_rule, 'sex': sex_rule})
-        
         total_files = len(final_strata_to_process); generated_dfs = {}
         for i, stratum in enumerate(final_strata_to_process):
             progress = (i + 1) / total_files
@@ -192,7 +198,6 @@ class DataProcessor:
                 generated_dfs[filename] = stratum_df
         progress_bar.progress(1.0, text="Estratificação concluída!")
         return generated_dfs
-
     def _generate_stratum_name(self, age_rule: Optional[Dict], sex_rule: Optional[Dict]) -> str:
         name_parts = []
         if age_rule:
@@ -218,6 +223,20 @@ class DataProcessor:
             if sex_name: name_parts.append(sex_name)
         return "_".join(part for part in name_parts if part)
 
+# --- FUNÇÕES AUXILIARES DE CONVERSÃO E CACHE ---
+
+@st.cache_data
+def load_dataframe(uploaded_file):
+    if uploaded_file is None: return None
+    try:
+        if uploaded_file.name.endswith('.csv'):
+            return pd.read_csv(uploaded_file, sep=';', decimal=',', encoding='latin-1')
+        else:
+            return pd.read_excel(uploaded_file, engine='openpyxl')
+    except Exception as e:
+        st.error(f"Erro ao ler o arquivo: {e}")
+        return None
+
 def to_excel(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -227,51 +246,88 @@ def to_excel(df):
 def to_csv(df):
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
+# --- FUNÇÕES DE INTERFACE ---
+
+def draw_filter_rules():
+    st.markdown("""
+    <style>
+    .stButton>button {
+        padding: 0.25rem 0.3rem;
+        font-size: 0.8rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    for i, rule in enumerate(st.session_state.filter_rules):
+        with st.container():
+            cols = st.columns([0.5, 3, 2, 2, 0.5, 1.5, 2, 2, 0.5])
+            rule['p_check'] = cols[0].checkbox("", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
+            rule['p_col'] = cols[1].text_input("Coluna", value=rule.get('p_col', ''), key=f"p_col_{rule['id']}", label_visibility="collapsed")
+            ops = ["", ">", "<", "=", "Não é igual a", "≥", "≤"]
+            rule['p_op1'] = cols[2].selectbox("Operador 1", ops, index=ops.index(rule['p_op1']) if rule.get('p_op1') in ops else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
+            rule['p_val1'] = cols[3].text_input("Valor 1", value=rule.get('p_val1', ''), key=f"p_val1_{rule['id']}", label_visibility="collapsed")
+            rule['p_expand'] = cols[4].checkbox("+", value=rule.get('p_expand', False), key=f"p_expand_{rule['id']}", label_visibility="collapsed")
+            if rule['p_expand']:
+                ops_central = ["E", "OU", "ENTRE"]
+                rule['p_op_central'] = cols[5].selectbox("Lógica", ops_central, index=ops_central.index(rule['p_op_central']) if rule.get('p_op_central') in ops_central else 0, key=f"p_op_central_{rule['id']}", label_visibility="collapsed")
+                rule['p_op2'] = cols[6].selectbox("Operador 2", ops, index=ops.index(rule.get('p_op2', '>')) if rule.get('p_op2') in ops else 0, key=f"p_op2_{rule['id']}", label_visibility="collapsed")
+                rule['p_val2'] = cols[7].text_input("Valor 2", value=rule.get('p_val2', ''), key=f"p_val2_{rule['id']}", label_visibility="collapsed")
+            if cols[8].button("X", key=f"del_filter_{rule['id']}"):
+                st.session_state.filter_rules.pop(i)
+                st.rerun()
+
+def draw_stratum_rules():
+    st.markdown("""
+    <style>
+    .stButton>button {
+        padding: 0.25rem 0.3rem;
+        font-size: 0.8rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    for i, stratum_rule in enumerate(st.session_state.stratum_rules):
+        with st.container():
+            cols = st.columns([2, 1, 1, 0.5, 1, 1, 1])
+            cols[0].write(f"**Faixa Etária {i+1}:**")
+            ops = ["", ">", "<", "≥", "≤"]
+            stratum_rule['op1'] = cols[1].selectbox("Operador 1", ops, index=ops.index(stratum_rule['op1']) if stratum_rule['op1'] in ops else 0, key=f"s_op1_{stratum_rule['id']}", label_visibility="collapsed")
+            stratum_rule['val1'] = cols[2].text_input("Valor 1", value=stratum_rule['val1'], key=f"s_val1_{stratum_rule['id']}", label_visibility="collapsed")
+            cols[3].markdown("<p style='text-align: center; margin-top: 25px;'>E</p>", unsafe_allow_html=True)
+            stratum_rule['op2'] = cols[4].selectbox("Operador 2", ops, index=ops.index(stratum_rule['op2']) if stratum_rule['op2'] in ops else 0, key=f"s_op2_{stratum_rule['id']}", label_visibility="collapsed")
+            stratum_rule['val2'] = cols[5].text_input("Valor 2", value=stratum_rule['val2'], key=f"s_val2_{stratum_rule['id']}", label_visibility="collapsed")
+            if cols[6].button("X", key=f"del_stratum_{stratum_rule['id']}"):
+                if len(st.session_state.stratum_rules) > 1:
+                    st.session_state.stratum_rules.pop(i)
+                    st.rerun()
+                else:
+                    st.warning("Não é possível excluir a última faixa.")
+
+# --- INTERFACE PRINCIPAL DO STREAMLIT ---
+
 def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
-        st.title("Termos de Uso e Conformidade com a LGPD")
-        st.markdown("""
-        Esta ferramenta foi projetada para processar e filtrar dados de planilhas. 
-        É possível que os arquivos carregados por você contenham dados pessoais sensíveis 
-        (como nome completo, data de nascimento, CPF, etc.), cujo tratamento é regulado pela 
-        Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).
-
-        É de sua **inteira responsabilidade** garantir que todos os dados utilizados nesta ferramenta estejam em 
-        conformidade com a LGPD. Recomendamos fortemente que você utilize apenas dados **previamente anonimizados**.
-
-        O programa executa todas as operações no servidor e a responsabilidade sobre a natureza dos dados processados é exclusivamente sua.
-
-        Para prosseguir, você deve confirmar que os dados a serem utilizados foram devidamente tratados e anonimizados.
-        """)
+        st.title("Termos de Uso e Conformidade com a LGPD"); st.markdown(MANUAL_CONTENT["Introdução"], unsafe_allow_html=True)
         accepted = st.checkbox("Ao confirmar, garanto que os dados inseridos estão anonimizados e que não há presença de dados sensíveis.")
         if st.button("Continuar", disabled=not accepted):
             st.session_state.lgpd_accepted = True
             st.rerun()
         return
 
-    if 'filter_rules' not in st.session_state: st.session_state.filter_rules = [dict(r) for r in DEFAULT_FILTERS]
+    if 'filter_rules' not in st.session_state: st.session_state.filter_rules = [dict(r, id=str(uuid.uuid4())) for r in DEFAULT_FILTERS]
     if 'stratum_rules' not in st.session_state: st.session_state.stratum_rules = [{'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}]
-    if 'uploaded_df' not in st.session_state: st.session_state.uploaded_df = None
-
+    
     with st.sidebar:
         st.title("Manual do Usuário")
         topic = st.selectbox("Selecione um tópico", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
         st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
 
-    st.title("Ferramenta de Análise de Planilhas v1.0 (Streamlit)")
+    st.title("Ferramenta de Análise de Planilhas v1.1 (Streamlit)")
 
     with st.expander("1. Configurações Globais", expanded=True):
         uploaded_file = st.file_uploader("Selecione a planilha", type=['csv', 'xlsx', 'xls'])
-        if uploaded_file and st.session_state.uploaded_df is None:
-            try:
-                if uploaded_file.name.endswith('.csv'):
-                    st.session_state.uploaded_df = pd.read_csv(uploaded_file, sep=';', decimal=',', encoding='latin-1')
-                else:
-                    st.session_state.uploaded_df = pd.read_excel(uploaded_file, engine='openpyxl')
-                st.success(f"Arquivo '{uploaded_file.name}' carregado com sucesso!")
-            except Exception as e:
-                st.error(f"Erro ao ler o arquivo: {e}"); st.session_state.uploaded_df = None
+        df = load_dataframe(uploaded_file)
         
         c1, c2, c3 = st.columns(3)
         with c1: st.text_input("Coluna Idade", value="Idade", key="col_idade"); st.text_input("Valor para masculino", value="Masculino", key="val_masculino")
@@ -282,89 +338,51 @@ def main():
 
     with tab_filter:
         st.header("Regras de Exclusão")
-        for i, rule in enumerate(st.session_state.filter_rules):
-            with st.container():
-                cols = st.columns([0.5, 3, 2, 2, 0.5, 1.5, 2, 2, 0.5])
-                rule['p_check'] = cols[0].checkbox("", value=rule['p_check'], key=f"p_check_{rule['id']}", label_visibility="collapsed")
-                rule['p_col'] = cols[1].text_input("Coluna", value=rule['p_col'], key=f"p_col_{rule['id']}", label_visibility="collapsed")
-                ops = ["", ">", "<", "=", "Não é igual a", "≥", "≤"]
-                rule['p_op1'] = cols[2].selectbox("Operador 1", ops, index=ops.index(rule['p_op1']) if rule['p_op1'] in ops else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
-                rule['p_val1'] = cols[3].text_input("Valor 1", value=rule['p_val1'], key=f"p_val1_{rule['id']}", label_visibility="collapsed")
-                rule['p_expand'] = cols[4].checkbox("+", value=rule['p_expand'], key=f"p_expand_{rule['id']}", label_visibility="collapsed")
-                if rule['p_expand']:
-                    ops_central = ["E", "OU", "ENTRE"]
-                    rule['p_op_central'] = cols[5].selectbox("Lógica", ops_central, index=ops_central.index(rule['p_op_central']) if rule['p_op_central'] in ops_central else 0, key=f"p_op_central_{rule['id']}", label_visibility="collapsed")
-                    rule['p_op2'] = cols[6].selectbox("Operador 2", ops, index=ops.index(rule['p_op2']) if rule['p_op2'] in ops else 0, key=f"p_op2_{rule['id']}", label_visibility="collapsed")
-                    rule['p_val2'] = cols[7].text_input("Valor 2", value=rule['p_val2'], key=f"p_val2_{rule['id']}", label_visibility="collapsed")
-                if cols[8].button("X", key=f"del_filter_{rule['id']}"):
-                    st.session_state.filter_rules.pop(i)
-                    st.rerun()
-        
+        draw_filter_rules()
+        st.markdown("---")
         if st.button("Adicionar Nova Regra de Filtro"):
             st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': ''})
             st.rerun()
-
         if st.button("Gerar Planilha Filtrada", type="primary", use_container_width=True):
-            if st.session_state.uploaded_df is None:
-                st.error("Por favor, carregue uma planilha primeiro.")
+            if df is None: st.error("Por favor, carregue uma planilha primeiro.")
             else:
                 with st.spinner("Aplicando filtros... Aguarde."):
                     progress_bar = st.progress(0, text="Iniciando...")
-                    processor = DataProcessor()
+                    processor = get_data_processor()
                     global_config = {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}
-                    filtered_df = processor.apply_filters(st.session_state.uploaded_df, st.session_state.filter_rules, global_config, progress_bar)
-                    st.success("Planilha filtrada com sucesso!")
-                    
+                    filtered_df = processor.apply_filters(df, st.session_state.filter_rules, global_config, progress_bar)
+                    st.success(f"Planilha filtrada com sucesso! {len(filtered_df)} linhas restantes.")
                     is_excel = "Excel" in st.session_state.output_format
                     file_bytes = to_excel(filtered_df) if is_excel else to_csv(filtered_df)
                     timestamp = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S")
                     file_name = f"Planilha_Filtrada_{timestamp}.{'xlsx' if is_excel else 'csv'}"
                     st.session_state.filtered_result = (file_bytes, file_name)
-        
         if 'filtered_result' in st.session_state:
             st.download_button("Download da Planilha Filtrada", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True)
 
     with tab_stratify:
         st.header("Opções de Estratificação")
         c1, c2, c3, c4 = st.columns([2,1,1,6])
-        c1.write("Estratificar por sexo:")
-        stratify_male = c2.checkbox("Masculino", value=True)
-        stratify_female = c3.checkbox("Feminino", value=True)
-        
+        c1.write("Estratificar por sexo:"); stratify_male = c2.checkbox("Masculino", value=True); stratify_female = c3.checkbox("Feminino", value=True)
         st.header("Definição das Faixas Etárias")
-        
-        for i, stratum_rule in enumerate(st.session_state.stratum_rules):
-            with st.container():
-                cols = st.columns([2, 1, 1, 0.5, 1, 1, 1])
-                cols[0].write("Faixa Etária:")
-                ops = ["", ">", "<", "≥", "≤"]
-                stratum_rule['op1'] = cols[1].selectbox("Operador 1", ops, index=ops.index(stratum_rule['op1']) if stratum_rule['op1'] in ops else 0, key=f"s_op1_{stratum_rule['id']}", label_visibility="collapsed")
-                stratum_rule['val1'] = cols[2].text_input("Valor 1", value=stratum_rule['val1'], key=f"s_val1_{stratum_rule['id']}", label_visibility="collapsed")
-                cols[3].markdown("<p style='text-align: center; margin-top: 25px;'>E</p>", unsafe_allow_html=True)
-                stratum_rule['op2'] = cols[4].selectbox("Operador 2", ops, index=ops.index(stratum_rule['op2']) if stratum_rule['op2'] in ops else 0, key=f"s_op2_{stratum_rule['id']}", label_visibility="collapsed")
-                stratum_rule['val2'] = cols[5].text_input("Valor 2", value=stratum_rule['val2'], key=f"s_val2_{stratum_rule['id']}", label_visibility="collapsed")
-                if cols[6].button("X", key=f"del_stratum_{stratum_rule['id']}"):
-                    st.session_state.stratum_rules.pop(i)
-                    st.rerun()
-        
+        draw_stratum_rules()
+        st.markdown("---")
         if st.button("Adicionar Faixa Etária"):
             st.session_state.stratum_rules.append({'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''})
             st.rerun()
 
         if st.button("Gerar Planilhas Estratificadas", type="primary", use_container_width=True):
-            st.session_state.confirm_stratify = True
+            if 'confirm_stratify' not in st.session_state: st.session_state.confirm_stratify = True
             st.rerun()
-
         if st.session_state.get('confirm_stratify', False):
             st.warning("Você confirma que a planilha selecionada é a versão FILTRADA?")
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns([1,1,4])
             if c1.button("Sim, continuar", use_container_width=True):
-                if st.session_state.uploaded_df is None:
-                    st.error("Por favor, carregue uma planilha primeiro.")
+                if df is None: st.error("Por favor, carregue uma planilha primeiro.")
                 else:
                     with st.spinner("Gerando estratos... Aguarde."):
                         progress_bar = st.progress(0, text="Iniciando...")
-                        processor = DataProcessor()
+                        processor = get_data_processor()
                         age_rules = [r for r in st.session_state.stratum_rules if r.get('val1')]
                         sex_rules = []
                         if stratify_male:
@@ -377,17 +395,14 @@ def main():
                             sex_rules.append({'value': val_f, 'name': 'Female'})
                         strata_config = {'ages': age_rules, 'sexes': sex_rules}
                         global_config = {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}
-                        stratified_dfs = processor.apply_stratification(st.session_state.uploaded_df.copy(), strata_config, global_config, progress_bar)
+                        stratified_dfs = processor.apply_stratification(df.copy(), strata_config, global_config, progress_bar)
                         st.session_state.stratified_results = stratified_dfs
-                st.session_state.confirm_stratify = False
-                st.rerun()
-            
+                st.session_state.confirm_stratify = False; st.rerun()
             if c2.button("Não, cancelar", use_container_width=True):
-                st.session_state.confirm_stratify = False
-                st.rerun()
-
+                st.session_state.confirm_stratify = False; st.rerun()
+        
         if st.session_state.get('stratified_results'):
-            st.markdown("---"); st.subheader("Arquivos para Download")
+            st.markdown("---"); st.subheader(f"Arquivos para Download ({len(st.session_state.stratified_results)} gerados)")
             is_excel = "Excel" in st.session_state.output_format
             for filename, df_to_download in st.session_state.stratified_results.items():
                 file_bytes = to_excel(df_to_download) if is_excel else to_csv(df_to_download)
