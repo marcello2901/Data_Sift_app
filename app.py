@@ -43,7 +43,7 @@ Este programa foi projetado para otimizar seu trabalho com grandes volumes de da
 Navegue pelos tópicos no menu à esquerda para aprender a usar cada parte da ferramenta.""",
     "1. Configurações Globais": """**1. Configurações Globais**
 
-Esta seção, localizada no topo da janela, contém as configurações essenciais que são compartilhadas entre as duas ferramentas. Configure-as uma vez para usar em ambas as abas.
+Esta seção contém as configurações essenciais que são compartilhadas entre as duas ferramentas. Configure-as uma vez para usar em ambas as abas.
 
 - **Selecionar Planilha...**
   Abre uma janela para selecionar o arquivo de dados de origem. Suporta os formatos `.xlsx`, `.xls` e `.csv`. Uma vez selecionado, o arquivo fica disponível para ambas as ferramentas.
@@ -71,13 +71,13 @@ Cada linha que você adiciona é uma condição para **remover** dados. Se uma l
 - **Coluna:** O nome da coluna onde o filtro será aplicado. **Dica:** você pode aplicar a mesma regra a várias colunas de uma vez, separando seus nomes por ponto e vírgula (`;`).
 
 - **Operador e Valor:** Operadores ">", "<", "≥", "≤", "=", "Não é igual a" definem a lógica da regra. São utilizados para definir os intervalos que serão considerados para que os dados sejam **excluídos**.
-**Dica: **a palavra-chave `vazio` é um recurso poderoso:
+**Dica:**a palavra-chave `vazio` é um recurso poderoso:
     - **Cenário 1: Excluir linhas com dados FALTANTES.**
         - **Configuração:** `Coluna: "Exame_X"`, `Operador: "é igual a"`, `Valor: "vazio"`.
     - **Cenário 2: Manter apenas linhas com dados EXISTENTES.**
         - **Configuração:** `Coluna: "Observações"`, `Operador: "Não é igual a"`, `Valor: "vazio"`.
 
-- **Regra Composta (Caixa)** Expande a regra para criar condições `E` / `OU`, quando o usuário quer inserir intervalos para exclusão.
+- **Lógica Composta** Expande a regra para criar condições `E` / `OU`, quando o usuário quer inserir intervalos para exclusão.
 
 - **Condição:** Permite aplicar um filtro secundário. A regra principal só será aplicada às linhas que também atenderem às condições de sexo e/ou idade.
 
