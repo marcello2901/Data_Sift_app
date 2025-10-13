@@ -171,17 +171,14 @@ class DataProcessor:
                 if col in df_processado.columns:
                     is_numeric_filter = f_config.get('p_val1', '').lower() != 'vazio'
                     if is_numeric_filter: df_processado[col] = self._safe_to_numeric(df_processado[col])
-            
             main_mask = pd.Series(True, index=df_processado.index)
             for sub_col in cols_to_check:
                 if sub_col not in df_processado.columns:
                     main_mask = pd.Series(False, index=df_processado.index); break
                 main_mask &= self._create_main_mask(df_processado, f_config, sub_col)
-            
             conditional_mask = self._create_conditional_mask(df_processado, f_config, global_config)
             final_mask = main_mask & conditional_mask
             df_processado = df_processado[~final_mask]
-            
         progress_bar.progress(1.0, text="Filtragem concluída!")
         return df_processado
     def apply_stratification(self, df: pd.DataFrame, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
@@ -274,7 +271,7 @@ def draw_filter_rules():
     st.markdown("""<style>.stButton>button {padding: 0.25rem 0.3rem; font-size: 0.8rem;}</style>""", unsafe_allow_html=True)
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
-            cols = st.columns([0.5, 4, 2, 2, 0.5, 3, 1, 1])
+            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1, 1])
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             rule['p_col'] = cols[1].text_input("Coluna", value=rule.get('p_col', ''), key=f"p_col_{rule['id']}", label_visibility="collapsed")
             ops = ["", ">", "<", "=", "Não é igual a", "≥", "≤"]
@@ -305,21 +302,26 @@ def draw_filter_rules():
 
             if rule['c_check']:
                 with st.container():
-                    cond_cols = st.columns([0.5, 0.5, 2, 0.5, 2, 4])
+                    cond_cols = st.columns([0.5, 0.5, 1, 2.5, 1, 2.5])
                     cond_cols[1].markdown("↳")
+                    
                     rule['c_idade_check'] = cond_cols[2].checkbox("Idade", value=rule.get('c_idade_check', False), key=f"c_idade_check_{rule['id']}")
-                    if rule['c_idade_check']:
-                        age_cols = cond_cols[3].columns(3)
-                        ops_idade = ["", ">", "<", "≥", "≤", "="]
-                        rule['c_idade_op1'] = age_cols[0].selectbox("Op Idade 1", ops_idade, index=ops_idade.index(rule.get('c_idade_op1','>')) if rule.get('c_idade_op1') in ops_idade else 0, key=f"c_idade_op1_{rule['id']}", label_visibility="collapsed")
-                        rule['c_idade_val1'] = age_cols[1].text_input("Val Idade 1", value=rule.get('c_idade_val1',''), key=f"c_idade_val1_{rule['id']}", label_visibility="collapsed")
-                        age_cols[2].write("E")
-                        rule['c_idade_op2'] = age_cols[0].selectbox("Op Idade 2", ops_idade, index=ops_idade.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_idade else 0, key=f"c_idade_op2_{rule['id']}", label_visibility="collapsed")
-                        rule['c_idade_val2'] = age_cols[1].text_input("Val Idade 2", value=rule.get('c_idade_val2',''), key=f"c_idade_val2_{rule['id']}", label_visibility="collapsed")
+                    with cond_cols[3]:
+                        if rule['c_idade_check']:
+                            age_cols = st.columns([1,1,0.2,1,1])
+                            ops_idade = ["", ">", "<", "≥", "≤", "="]
+                            rule['c_idade_op1'] = age_cols[0].selectbox("Op Idade 1", ops_idade, index=ops_idade.index(rule.get('c_idade_op1','>')) if rule.get('c_idade_op1') in ops_idade else 0, key=f"c_idade_op1_{rule['id']}", label_visibility="collapsed")
+                            rule['c_idade_val1'] = age_cols[1].text_input("Val Idade 1", value=rule.get('c_idade_val1',''), key=f"c_idade_val1_{rule['id']}", label_visibility="collapsed")
+                            age_cols[2].write("E")
+                            rule['c_idade_op2'] = age_cols[3].selectbox("Op Idade 2", ops_idade, index=ops_idade.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_idade else 0, key=f"c_idade_op2_{rule['id']}", label_visibility="collapsed")
+                            rule['c_idade_val2'] = age_cols[4].text_input("Val Idade 2", value=rule.get('c_idade_val2',''), key=f"c_idade_val2_{rule['id']}", label_visibility="collapsed")
                     
                     rule['c_sexo_check'] = cond_cols[4].checkbox("Sexo", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule['id']}")
-                    if rule['c_sexo_check']:
-                        rule['c_sexo_val'] = cond_cols[5].text_input("Valor Sexo", value=rule.get('c_sexo_val', ''), key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
+                    with cond_cols[5]:
+                        if rule['c_sexo_check']:
+                            rule['c_sexo_val'] = st.text_input("Valor Sexo", value=rule.get('c_sexo_val', ''), key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
+        st.markdown("---")
+
 
 def draw_stratum_rules():
     st.markdown("""<style>.stButton>button {padding: 0.25rem 0.3rem; font-size: 0.8rem;}</style>""", unsafe_allow_html=True)
@@ -339,31 +341,20 @@ def draw_stratum_rules():
                     st.rerun()
                 else:
                     st.warning("Não é possível excluir a última faixa.")
+        st.markdown("---")
 
 def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
         st.title("Termos de Uso e Conformidade com a LGPD")
-        st.markdown("""
-        Esta ferramenta foi projetada para processar e filtrar dados de planilhas. 
-        É possível que os arquivos carregados por você contenham dados pessoais sensíveis 
-        (como nome completo, data de nascimento, CPF, etc.), cujo tratamento é regulado pela 
-        Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).
-
-        É de sua **inteira responsabilidade** garantir que todos os dados utilizados nesta ferramenta estejam em 
-        conformidade com a LGPD. Recomendamos fortemente que você utilize apenas dados **previamente anonimizados**.
-
-        O programa executa todas as operações no servidor e a responsabilidade sobre a natureza dos dados processados é exclusivamente sua.
-
-        Para prosseguir, você deve confirmar que os dados a serem utilizados foram devidamente tratados e anonimizados.
-        """)
+        st.markdown(MANUAL_CONTENT["Introdução"], unsafe_allow_html=True)
         accepted = st.checkbox("Ao confirmar, garanto que os dados inseridos estão anonimizados e que não há presença de dados sensíveis.")
         if st.button("Continuar", disabled=not accepted):
             st.session_state.lgpd_accepted = True
             st.rerun()
         return
 
-    if 'filter_rules' not in st.session_state: st.session_state.filter_rules = [dict(r, id=str(uuid.uuid4())) for r in copy.deepcopy(DEFAULT_FILTERS)]
+    if 'filter_rules' not in st.session_state: st.session_state.filter_rules = [dict(r) for r in copy.deepcopy(DEFAULT_FILTERS)]
     if 'stratum_rules' not in st.session_state: st.session_state.stratum_rules = [{'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}]
     
     with st.sidebar:
@@ -387,7 +378,6 @@ def main():
     with tab_filter:
         st.header("Regras de Exclusão")
         draw_filter_rules()
-        st.markdown("---")
         if st.button("Adicionar Nova Regra de Filtro"):
             st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''})
             st.rerun()
@@ -414,16 +404,15 @@ def main():
         c1.write("Estratificar por sexo:"); stratify_male = c2.checkbox("Masculino", value=True); stratify_female = c3.checkbox("Feminino", value=True)
         st.header("Definição das Faixas Etárias")
         draw_stratum_rules()
-        st.markdown("---")
         if st.button("Adicionar Faixa Etária"):
             st.session_state.stratum_rules.append({'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''})
             st.rerun()
         if st.button("Gerar Planilhas Estratificadas", type="primary", use_container_width=True):
-            if 'confirm_stratify' not in st.session_state: st.session_state.confirm_stratify = True
+            st.session_state.confirm_stratify = True
             st.rerun()
         if st.session_state.get('confirm_stratify', False):
             st.warning("Você confirma que a planilha selecionada é a versão FILTRADA?")
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns([1,1,4])
             if c1.button("Sim, continuar", use_container_width=True):
                 if df is None: st.error("Por favor, carregue uma planilha primeiro.")
                 else:
