@@ -375,7 +375,7 @@ def main():
         topic = st.selectbox("Selecione um tópico", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
         st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
 
-    st.title("Data Sift")
+    st.title("Data Sift - Ferramenta de Filtros de Planilhas")
 
     with st.expander("1. Configurações Globais", expanded=True):
         uploaded_file = st.file_uploader("Selecione a planilha", type=['csv', 'xlsx', 'xls'])
