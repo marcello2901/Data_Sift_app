@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.4 - Seletores dinâmicos para valores de Gênero
+# Versão 1.5 - Seleção dinâmica de múltiplos gêneros para estratificação
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -43,7 +43,7 @@ Este programa foi projetado para otimizar seu trabalho com grandes volumes de da
 Navegue pelos tópicos no menu à esquerda para aprender a usar cada parte da ferramenta.""",
     "1. Configurações Globais": """**1. Configurações Globais**
 
-Esta seção, localizada no topo da janela, contém as configurações essenciais que são compartilhadas entre as duas ferramentas. Configure-as uma vez para usar em ambas as abas.
+Esta seção contém as configurações essenciais que são compartilhadas entre as duas ferramentas. Configure-as uma vez para usar em ambas as abas.
 
 - **Selecionar Planilha...**
   Abre uma janela para selecionar o arquivo de dados de origem. Suporta os formatos `.xlsx`, `.xls` e `.csv`. Uma vez selecionado, o arquivo fica disponível para ambas as ferramentas.
@@ -423,7 +423,7 @@ def main():
         
         c1, c2, c3 = st.columns(3)
         with c1: 
-            st.selectbox("Coluna Idade", options=column_options, key="col_idade", index=column_options.index("Idade") if "Idade" in column_options else 0)
+            st.selectbox("Coluna Idade", options=column_options, key="col_idade")
         with c2: 
             st.selectbox("Sexo/Gênero", options=column_options, key="col_sexo")
         with c3: 
@@ -438,9 +438,9 @@ def main():
         
         c4, c5 = st.columns(2)
         with c4:
-            st.selectbox("Sexo/Gênero", options=sex_column_values, key="val_sg1")
+            st.selectbox("Sexo/Gênero 1", options=sex_column_values, key="val_sg1")
         with c5:
-            st.selectbox("Sexo/Gênero", options=sex_column_values, key="val_sg2")
+            st.selectbox("Sexo/Gênero 2", options=sex_column_values, key="val_sg2")
 
     tab_filter, tab_stratify = st.tabs(["2. Ferramenta de Filtro", "3. Ferramenta de Estratificação"])
 
@@ -470,7 +470,7 @@ def main():
     with tab_stratify:
         st.header("Opções de Estratificação")
         c1, c2, c3, c4 = st.columns([2,1,1,6])
-        c1.write("Estratificar por sexo:"); stratify_male = c2.checkbox("Masculino", value=True); stratify_female = c3.checkbox("Feminino", value=True)
+        c1.write("Estratificar por sexo:"); stratify_male = c2.checkbox("Sexo/Gênero 1", value=True); stratify_female = c3.checkbox("Sexo/Gênero 2", value=True)
         st.header("Definição das Faixas Etárias")
         draw_stratum_rules()
         if st.button("Adicionar Faixa Etária"):
@@ -492,11 +492,11 @@ def main():
                         sex_rules = []
                         if stratify_male:
                             val_m = st.session_state.val_sg1
-                            if not val_m: st.error("Selecione o valor para 'Sexo/Gênero' nas Configurações Globais."); st.stop()
+                            if not val_m: st.error("Selecione o valor para 'Sexo/Gênero 1' nas Configurações Globais."); st.stop()
                             sex_rules.append({'value': val_m, 'name': 'Male'})
                         if stratify_female:
                             val_f = st.session_state.val_sg2
-                            if not val_f: st.error("Selecione o valor para 'Sexo/Gênero' nas Configurações Globais."); st.stop()
+                            if not val_f: st.error("Selecione o valor para 'Sexo/Gênero 2' nas Configurações Globais."); st.stop()
                             sex_rules.append({'value': val_f, 'name': 'Female'})
                         strata_config = {'ages': age_rules, 'sexes': sex_rules}
                         global_config = {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}
