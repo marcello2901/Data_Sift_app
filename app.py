@@ -15,7 +15,7 @@ import uuid
 import copy
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(layout="wide", page_title="Ferramenta de Filtros de Planilhas")
+st.set_page_config(layout="wide", page_title="Data Sift - Ferramenta de Filtros de Planilhas")
 
 # --- CONSTANTES E DADOS ---
 TERMO_LGPD = """
@@ -34,7 +34,7 @@ Para prosseguir, você deve confirmar que os dados a serem utilizados foram devi
 """
 
 MANUAL_CONTENT = {
-    "Introdução": """**Bem-vindo à Ferramenta de Filtros de Planilhas!**
+    "Introdução": """**Bem-vindo à Data Sift!**
 
 Este programa foi projetado para otimizar seu trabalho com grandes volumes de dados, oferecendo duas funcionalidades principais:
 
@@ -392,7 +392,7 @@ def main():
         topic = st.selectbox("Selecione um tópico", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
         st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
 
-    st.title("Ferramenta de Filtros de Planilhas v1.2")
+    st.title("Data Sift - Ferramenta de Filtros de Planilhas v1.2")
 
     with st.expander("1. Configurações Globais", expanded=True):
         uploaded_file = st.file_uploader("Selecione a planilha", type=['csv', 'xlsx', 'xls'])
