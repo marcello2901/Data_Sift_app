@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.3 - Atualização do texto da LGPD
+# Versão 1.3 - Adição de texto de boas-vindas na tela da LGPD
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -15,7 +15,7 @@ import uuid
 import copy
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(layout="wide", page_title="Data Sift - Ferramenta de Filtros de Planilhas")
+st.set_page_config(layout="wide", page_title="Data Sift")
 
 # --- CONSTANTES E DADOS ---
 TERMO_LGPD = """
@@ -34,14 +34,14 @@ Para prosseguir, você deve confirmar que os dados a serem utilizados foram devi
 """
 
 MANUAL_CONTENT = {
-    "Introdução": """**Bem-vindo à Data Sift!**
+    "Introdução": """**Bem-vindo à Ferramenta de Filtros de Planilhas!**
 
 Este programa foi projetado para otimizar seu trabalho com grandes volumes de dados, oferecendo duas funcionalidades principais:
 
 1.  **Filtragem:** Para limpar sua base de dados, removendo linhas que não são de seu interesse.
 2.  **Estratificação:** Para dividir sua base de dados em subgrupos específicos.
 
-Navegue pelos tópicos no menu acima para aprender a usar cada parte da ferramenta.""",
+Navegue pelos tópicos no menu à esquerda para aprender a usar cada parte da ferramenta.""",
     "1. Configurações Globais": """**1. Configurações Globais**
 
 Esta seção, localizada no topo da janela, contém as configurações essenciais que são compartilhadas entre as duas ferramentas. Configure-as uma vez para usar em ambas as abas.
@@ -72,13 +72,13 @@ Cada linha que você adiciona é uma condição para **remover** dados. Se uma l
 - **Coluna:** O nome da coluna onde o filtro será aplicado. **Dica:** você pode aplicar a mesma regra a várias colunas de uma vez, separando seus nomes por ponto e vírgula (`;`).
 
 - **Operador e Valor:** Operadores ">", "<", "≥", "≤", "=", "Não é igual a" definem a lógica da regra. São utilizados para definir os intervalos que serão considerados para que os dados sejam **excluídos**.
-**Dica:** a palavra-chave `vazio` é um recurso poderoso:
+**Dica: **a palavra-chave `vazio` é um recurso poderoso:
     - **Cenário 1: Excluir linhas com dados FALTANTES.**
         - **Configuração:** `Coluna: "Exame_X"`, `Operador: "é igual a"`, `Valor: "vazio"`.
     - **Cenário 2: Manter apenas linhas com dados EXISTENTES.**
         - **Configuração:** `Coluna: "Observações"`, `Operador: "Não é igual a"`, `Valor: "vazio"`.
 
-- **Regra Composta (Caixa)** Expande a regra para criar condições `E` / `OU`/`ENTRE`, quando o usuário quer inserir intervalos para exclusão. **Dica:** Para utilizar a condição `ENTRE`, o usuário deve deixar a configuração da regra sem operadores (">", "<", "≥", "≤", "=", "Não é igual a").
+- **Regra Composta (Caixa)** Expande a regra para criar condições `E` / `OU`, quando o usuário quer inserir intervalos para exclusão.
 
 - **Condição:** Permite aplicar um filtro secundário. A regra principal só será aplicada às linhas que também atenderem às condições de sexo e/ou idade.
 
@@ -284,30 +284,16 @@ def to_csv(df):
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
 def draw_filter_rules():
-    # --- ALTERAÇÃO AQUI: Adicionado 'white-space: nowrap;' ao estilo do botão ---
-    st.markdown("""
-    <style>
-    .stButton>button {
-        padding: 0.25rem 0.3rem;
-        font-size: 0.8rem;
-        white-space: nowrap; /* Impede a quebra de linha no texto do botão */
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    # --- FIM DA ALTERAÇÃO ---
-    
+    st.markdown("""<style>.stButton>button {padding: 0.25rem 0.3rem; font-size: 0.8rem; white-space: nowrap;}</style>""", unsafe_allow_html=True)
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
-            # A lógica das colunas foi ajustada para dar mais espaço aos botões de ação
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5]) 
-            
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             rule['p_col'] = cols[1].text_input("Coluna", value=rule.get('p_col', ''), key=f"p_col_{rule['id']}", label_visibility="collapsed")
             ops = ["", ">", "<", "=", "Não é igual a", "≥", "≤"]
             rule['p_op1'] = cols[2].selectbox("Operador 1", ops, index=ops.index(rule['p_op1']) if rule.get('p_op1') in ops else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
             rule['p_val1'] = cols[3].text_input("Valor 1", value=rule.get('p_val1', ''), key=f"p_val1_{rule['id']}", label_visibility="collapsed")
             rule['p_expand'] = cols[4].checkbox("+", value=rule.get('p_expand', False), key=f"p_expand_{rule['id']}", label_visibility="collapsed")
-            
             with cols[5]:
                 if rule['p_expand']:
                     exp_cols = st.columns(3)
@@ -315,11 +301,8 @@ def draw_filter_rules():
                     rule['p_op_central'] = exp_cols[0].selectbox("Lógica", ops_central, index=ops_central.index(rule['p_op_central']) if rule.get('p_op_central') in ops_central else 0, key=f"p_op_central_{rule['id']}", label_visibility="collapsed")
                     rule['p_op2'] = exp_cols[1].selectbox("Operador 2", ops, index=ops.index(rule.get('p_op2', '>')) if rule.get('p_op2') in ops else 0, key=f"p_op2_{rule['id']}", label_visibility="collapsed")
                     rule['p_val2'] = exp_cols[2].text_input("Valor 2", value=rule.get('p_val2', ''), key=f"p_val2_{rule['id']}", label_visibility="collapsed")
-
             with cols[6]:
                 rule['c_check'] = st.checkbox("Condição", value=rule.get('c_check', False), key=f"c_check_{rule['id']}")
-            
-            # Ação dos botões Clonar e X na última coluna
             action_cols = cols[7].columns(2)
             if action_cols[0].button("Clonar", key=f"clone_{rule['id']}"):
                 new_rule = copy.deepcopy(rule)
@@ -332,10 +315,8 @@ def draw_filter_rules():
 
             if rule['c_check']:
                 with st.container():
-                    # Ajuste fino das colunas de condição para melhor alinhamento
                     cond_cols = st.columns([0.55, 0.5, 1, 3, 1, 3])
                     cond_cols[1].markdown("↳")
-                    
                     rule['c_idade_check'] = cond_cols[2].checkbox("Idade", value=rule.get('c_idade_check', False), key=f"c_idade_check_{rule['id']}")
                     with cond_cols[3]:
                         if rule['c_idade_check']:
@@ -346,7 +327,6 @@ def draw_filter_rules():
                             age_cols[2].write("E")
                             rule['c_idade_op2'] = age_cols[3].selectbox("Op Idade 2", ops_idade, index=ops_idade.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_idade else 0, key=f"c_idade_op2_{rule['id']}", label_visibility="collapsed")
                             rule['c_idade_val2'] = age_cols[4].text_input("Val Idade 2", value=rule.get('c_idade_val2',''), key=f"c_idade_val2_{rule['id']}", label_visibility="collapsed")
-                    
                     rule['c_sexo_check'] = cond_cols[4].checkbox("Sexo", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule['id']}")
                     with cond_cols[5]:
                         if rule['c_sexo_check']:
@@ -376,8 +356,11 @@ def draw_stratum_rules():
 def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
-        st.title("Termos de Uso e Conformidade com a LGPD")
-        st.markdown(TERMO_LGPD, unsafe_allow_html=True)
+        st.title("Bem-vindo à Data Sift!")
+        st.markdown("Este programa foi projetado para otimizar seu trabalho com grandes volumes de dados, oferecendo funcionalidades de exclusão de dados de planilhas a partir de filtros e estratificação da planilha filtrada. Leia os termos abaixo para prosseguir.")
+        st.divider()
+        st.header("Termos de Uso e Conformidade com a LGPD")
+        st.markdown(TERMO_LGPD)
         accepted = st.checkbox("Ao confirmar, garanto que os dados inseridos estão anonimizados e que não há presença de dados sensíveis.")
         if st.button("Continuar", disabled=not accepted):
             st.session_state.lgpd_accepted = True
@@ -392,7 +375,7 @@ def main():
         topic = st.selectbox("Selecione um tópico", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
         st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
 
-    st.title("Data Sift - Ferramenta de Filtros de Planilhas v1.2")
+    st.title("Data Sift")
 
     with st.expander("1. Configurações Globais", expanded=True):
         uploaded_file = st.file_uploader("Selecione a planilha", type=['csv', 'xlsx', 'xls'])
