@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.3 - Adição de texto de boas-vindas na tela da LGPD
+# Versão 1.3
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -458,4 +458,5 @@ def main():
                 st.download_button(f"Download {file_name}", data=file_bytes, file_name=file_name)
 
 if __name__ == "__main__":
+
     main()
