@@ -302,10 +302,9 @@ OU: Exclui valores fora de um intervalo. Use para manter os dados que estão no 
 E: Exclui valores dentro de um intervalo, sem os extremos. Ex: > 10 E < 20 remove de 11 a 19 (mantém os valores 10 e 20).
 """
     tooltip_text_html = tooltip_text.replace('\n', '&#10;')
-    header_cols[5].markdown(f"**Lógica Composta** <span title='{tooltip_text_html}'>&#9432;</span>", unsafe_allow_html=True)
-    
-    header_cols[6].markdown("**Condição** <span title='Ative a opção de filtrar por idade ou sexo esta coluna em específico'>&#9432;</span>", unsafe_allow_html=True)
-    header_cols[7].markdown("**Ações** <span title='Utilize para duplicar ou excluir uma regra'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[5].markdown(f"**Lógica Composta** <span title='{tooltip_text_html} '>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[6].markdown("**Condição** <span title='Use quando um critério de exclusão (ex: valor de referência de um exame) muda conforme a idade ou o sexo do paciente. '>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[7].markdown("**Ações** <span title='Utilize para duplicar ou excluir uma regra. '>&#9432;</span>", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top: -0.5rem; margin-bottom: 0.5rem;'>", unsafe_allow_html=True)
 
     for i, rule in enumerate(st.session_state.filter_rules):
