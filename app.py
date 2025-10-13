@@ -15,7 +15,7 @@ import uuid
 import copy
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(layout="wide", page_title="Análise de Planilhas")
+st.set_page_config(layout="wide", page_title="Ferramenta de Filtros de Planilhas")
 
 # --- CONSTANTES E DADOS ---
 TERMO_LGPD = """
