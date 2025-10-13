@@ -34,7 +34,7 @@ Para prosseguir, você deve confirmar que os dados a serem utilizados foram devi
 """
 
 MANUAL_CONTENT = {
-    "Introdução": """**Bem-vindo à Ferramenta de Análise de Planilhas!**
+    "Introdução": """**Bem-vindo à Ferramenta de Filtros de Planilhas!**
 
 Este programa foi projetado para otimizar seu trabalho com grandes volumes de dados, oferecendo duas funcionalidades principais:
 
@@ -71,7 +71,7 @@ Cada linha que você adiciona é uma condição para **remover** dados. Se uma l
 
 - **Coluna:** O nome da coluna onde o filtro será aplicado. **Dica:** você pode aplicar a mesma regra a várias colunas de uma vez, separando seus nomes por ponto e vírgula (`;`).
 
-- **Operador e Valor:** Operadores ">", "<", "≥", "≤", "=" definem a lógica da regra. São utilizados para definir os intervalos que serão considerados para que os dados sejam **excluídos**.
+- **Operador e Valor:** Operadores ">", "<", "≥", "≤", "=", "Não é igual a" definem a lógica da regra. São utilizados para definir os intervalos que serão considerados para que os dados sejam **excluídos**.
 **Dica: **a palavra-chave `vazio` é um recurso poderoso:
     - **Cenário 1: Excluir linhas com dados FALTANTES.**
         - **Configuração:** `Coluna: "Exame_X"`, `Operador: "é igual a"`, `Valor: "vazio"`.
@@ -284,10 +284,23 @@ def to_csv(df):
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
 def draw_filter_rules():
-    st.markdown("""<style>.stButton>button {padding: 0.25rem 0.3rem; font-size: 0.8rem;}</style>""", unsafe_allow_html=True)
+    # --- ALTERAÇÃO AQUI: Adicionado 'white-space: nowrap;' ao estilo do botão ---
+    st.markdown("""
+    <style>
+    .stButton>button {
+        padding: 0.25rem 0.3rem;
+        font-size: 0.8rem;
+        white-space: nowrap; /* Impede a quebra de linha no texto do botão */
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    # --- FIM DA ALTERAÇÃO ---
+    
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
-            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1, 1])
+            # A lógica das colunas foi ajustada para dar mais espaço aos botões de ação
+            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.2]) 
+            
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             rule['p_col'] = cols[1].text_input("Coluna", value=rule.get('p_col', ''), key=f"p_col_{rule['id']}", label_visibility="collapsed")
             ops = ["", ">", "<", "=", "Não é igual a", "≥", "≤"]
@@ -306,6 +319,7 @@ def draw_filter_rules():
             with cols[6]:
                 rule['c_check'] = st.checkbox("Condição", value=rule.get('c_check', False), key=f"c_check_{rule['id']}")
             
+            # Ação dos botões Clonar e X na última coluna
             action_cols = cols[7].columns(2)
             if action_cols[0].button("Clonar", key=f"clone_{rule['id']}"):
                 new_rule = copy.deepcopy(rule)
@@ -318,7 +332,8 @@ def draw_filter_rules():
 
             if rule['c_check']:
                 with st.container():
-                    cond_cols = st.columns([0.5, 0.5, 1, 2.5, 1, 2.5])
+                    # Ajuste fino das colunas de condição para melhor alinhamento
+                    cond_cols = st.columns([0.55, 0.5, 1, 3, 1, 3])
                     cond_cols[1].markdown("↳")
                     
                     rule['c_idade_check'] = cond_cols[2].checkbox("Idade", value=rule.get('c_idade_check', False), key=f"c_idade_check_{rule['id']}")
@@ -377,7 +392,7 @@ def main():
         topic = st.selectbox("Selecione um tópico", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
         st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
 
-    st.title("Ferramenta de Análise de Planilhas v1.2 (Streamlit)")
+    st.title("Ferramenta de Filtros de Planilhas v1.2")
 
     with st.expander("1. Configurações Globais", expanded=True):
         uploaded_file = st.file_uploader("Selecione a planilha", type=['csv', 'xlsx', 'xls'])
