@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.1 - Migração para Streamlit (Otimizada com Cache e Correções)
+# Versão 1.2 - Reimplementação das funções 'Clonar' e 'Condição' para Streamlit
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Optional
 import io
 import uuid
+import copy
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Análise de Planilhas")
@@ -65,7 +66,7 @@ Cada linha que você adiciona é uma condição para **remover** dados. Se uma l
 
 - **Condição:** Permite aplicar um filtro secundário. A regra principal só será aplicada às linhas que também atenderem a esta condição.
 
-- **Ações:** O botão de `X` apaga a regra. A clonagem pode ser feita manualmente.
+- **Ações:** O botão de `X` apaga a regra. O botão 'Clonar' duplica a regra.
 
 - **Gerar Planilha Filtrada:** Inicia o processo. Um botão de download aparecerá ao final com o arquivo `Planilha_Filtrada_` com data e hora.""",
     "3. Ferramenta de Estratificação": """**3. Ferramenta de Estratificação**
@@ -85,23 +86,23 @@ Diferente do filtro, o objetivo desta ferramenta é **dividir** sua planilha em 
   - **Confirmação:** Antes de iniciar, o programa perguntará se você está usando uma planilha já filtrada."""
 }
 DEFAULT_FILTERS = [
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'CAPA.IST', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': '50'},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ferritina.FERRI', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': '600'},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ultra-PCR.ULTRAPCR', 'p_op1': '>', 'p_val1': '5', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.#HGB', 'p_op1': '<', 'p_val1': '7,0', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.LEUCO', 'p_op1': '>', 'p_val1': '11000', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Creatinina.CRE', 'p_op1': '>', 'p_val1': '1,5', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Creatinina.eTFG2021', 'p_op1': '<', 'p_val1': '60', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'HBGLI.HBGLI', 'p_op1': '>', 'p_val1': '6,5', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'GLICOSE.GLI', 'p_op1': '>', 'p_val1': '200', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '65'},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'TSH.TSH', 'p_op1': '>', 'p_val1': '10', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '0,01'},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Idade', 'p_op1': '>', 'p_val1': '75', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.OBSSV', 'p_op1': 'Não é igual a', 'p_val1': 'vazio', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.OBSSB', 'p_op1': 'Não é igual a', 'p_val1': 'vazio', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.OBSSP', 'p_op1': 'Não é igual a', 'p_val1': 'vazio', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'CAPA.IST', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': '50', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ferritina.FERRI', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': '600', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ultra-PCR.ULTRAPCR', 'p_op1': '>', 'p_val1': '5', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.#HGB', 'p_op1': '<', 'p_val1': '7,0', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.LEUCO', 'p_op1': '>', 'p_val1': '11000', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Creatinina.CRE', 'p_op1': '>', 'p_val1': '1,5', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Creatinina.eTFG2021', 'p_op1': '<', 'p_val1': '60', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'HBGLI.HBGLI', 'p_op1': '>', 'p_val1': '6,5', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'GLICOSE.GLI', 'p_op1': '>', 'p_val1': '200', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '65', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'TSH.TSH', 'p_op1': '>', 'p_val1': '10', 'p_expand': True, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '0,01', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Idade', 'p_op1': '>', 'p_val1': '75', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.OBSSV', 'p_op1': 'Não é igual a', 'p_val1': 'vazio', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.OBSSB', 'p_op1': 'Não é igual a', 'p_val1': 'vazio', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.OBSSP', 'p_op1': 'Não é igual a', 'p_val1': 'vazio', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
 ]
 
-# --- CLASSES DE PROCESSAMENTO (LÓGICA PURA) ---
+# --- CLASSES DE PROCESSAMENTO ---
 
 @st.cache_resource
 def get_data_processor():
@@ -135,6 +136,27 @@ class DataProcessor:
             else:
                 v1_num = float(str(val1).replace(',', '.')); return self._build_single_mask(df[col], op1, v1_num)
         except (ValueError, TypeError): return pd.Series([False] * len(df), index=df.index)
+    def _create_conditional_mask(self, df: pd.DataFrame, f: Dict, global_config: Dict) -> pd.Series:
+        mascara_condicional = pd.Series(True, index=df.index)
+        if not f.get('c_check'): return mascara_condicional
+        col_idade = global_config.get('coluna_idade')
+        if f.get('c_idade_check') and col_idade and col_idade in df.columns:
+            df[col_idade] = self._safe_to_numeric(df[col_idade])
+            try:
+                op_idade1_ui, val_idade1 = f.get('c_idade_op1'), f.get('c_idade_val1')
+                if op_idade1_ui and val_idade1:
+                    op1 = self.OPERATOR_MAP.get(op_idade1_ui, op_idade1_ui); v1 = float(str(val_idade1).replace(',', '.'))
+                    mascara_condicional &= self._build_single_mask(df[col_idade], op1, v1)
+                op_idade2_ui, val_idade2 = f.get('c_idade_op2'), f.get('c_idade_val2')
+                if op_idade2_ui and val_idade2:
+                    op2 = self.OPERATOR_MAP.get(op_idade2_ui, op_idade2_ui); v2 = float(str(val_idade2).replace(',', '.'))
+                    mascara_condicional &= self._build_single_mask(df[col_idade], op2, v2)
+            except (ValueError, TypeError): pass
+        col_sexo = global_config.get('coluna_sexo')
+        if f.get('c_sexo_check') and col_sexo and col_sexo in df.columns:
+            val_sexo_gui = f.get('c_sexo_val', '').lower().strip()
+            if val_sexo_gui: mascara_condicional &= self._build_single_mask(df[col_sexo], '==', val_sexo_gui)
+        return mascara_condicional
     def apply_filters(self, df: pd.DataFrame, filters_config: List[Dict], global_config: Dict, progress_bar) -> pd.DataFrame:
         df_processado = df.copy()
         active_filters = [f for f in filters_config if f['p_check']]
@@ -149,12 +171,17 @@ class DataProcessor:
                 if col in df_processado.columns:
                     is_numeric_filter = f_config.get('p_val1', '').lower() != 'vazio'
                     if is_numeric_filter: df_processado[col] = self._safe_to_numeric(df_processado[col])
-            combined_mask = pd.Series(True, index=df_processado.index)
+            
+            main_mask = pd.Series(True, index=df_processado.index)
             for sub_col in cols_to_check:
                 if sub_col not in df_processado.columns:
-                    combined_mask = pd.Series(False, index=df_processado.index); break
-                combined_mask &= self._create_main_mask(df_processado, f_config, sub_col)
-            df_processado = df_processado[~combined_mask]
+                    main_mask = pd.Series(False, index=df_processado.index); break
+                main_mask &= self._create_main_mask(df_processado, f_config, sub_col)
+            
+            conditional_mask = self._create_conditional_mask(df_processado, f_config, global_config)
+            final_mask = main_mask & conditional_mask
+            df_processado = df_processado[~final_mask]
+            
         progress_bar.progress(1.0, text="Filtragem concluída!")
         return df_processado
     def apply_stratification(self, df: pd.DataFrame, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
@@ -223,8 +250,6 @@ class DataProcessor:
             if sex_name: name_parts.append(sex_name)
         return "_".join(part for part in name_parts if part)
 
-# --- FUNÇÕES AUXILIARES DE CONVERSÃO E CACHE ---
-
 @st.cache_data
 def load_dataframe(uploaded_file):
     if uploaded_file is None: return None
@@ -234,8 +259,7 @@ def load_dataframe(uploaded_file):
         else:
             return pd.read_excel(uploaded_file, engine='openpyxl')
     except Exception as e:
-        st.error(f"Erro ao ler o arquivo: {e}")
-        return None
+        st.error(f"Erro ao ler o arquivo: {e}"); return None
 
 def to_excel(df):
     output = io.BytesIO()
@@ -246,46 +270,59 @@ def to_excel(df):
 def to_csv(df):
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
-# --- FUNÇÕES DE INTERFACE ---
-
 def draw_filter_rules():
-    st.markdown("""
-    <style>
-    .stButton>button {
-        padding: 0.25rem 0.3rem;
-        font-size: 0.8rem;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
+    st.markdown("""<style>.stButton>button {padding: 0.25rem 0.3rem; font-size: 0.8rem;}</style>""", unsafe_allow_html=True)
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
-            cols = st.columns([0.5, 3, 2, 2, 0.5, 1.5, 2, 2, 0.5])
-            rule['p_check'] = cols[0].checkbox("", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
+            cols = st.columns([0.5, 4, 2, 2, 0.5, 3, 1, 1])
+            rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             rule['p_col'] = cols[1].text_input("Coluna", value=rule.get('p_col', ''), key=f"p_col_{rule['id']}", label_visibility="collapsed")
             ops = ["", ">", "<", "=", "Não é igual a", "≥", "≤"]
             rule['p_op1'] = cols[2].selectbox("Operador 1", ops, index=ops.index(rule['p_op1']) if rule.get('p_op1') in ops else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
             rule['p_val1'] = cols[3].text_input("Valor 1", value=rule.get('p_val1', ''), key=f"p_val1_{rule['id']}", label_visibility="collapsed")
             rule['p_expand'] = cols[4].checkbox("+", value=rule.get('p_expand', False), key=f"p_expand_{rule['id']}", label_visibility="collapsed")
-            if rule['p_expand']:
-                ops_central = ["E", "OU", "ENTRE"]
-                rule['p_op_central'] = cols[5].selectbox("Lógica", ops_central, index=ops_central.index(rule['p_op_central']) if rule.get('p_op_central') in ops_central else 0, key=f"p_op_central_{rule['id']}", label_visibility="collapsed")
-                rule['p_op2'] = cols[6].selectbox("Operador 2", ops, index=ops.index(rule.get('p_op2', '>')) if rule.get('p_op2') in ops else 0, key=f"p_op2_{rule['id']}", label_visibility="collapsed")
-                rule['p_val2'] = cols[7].text_input("Valor 2", value=rule.get('p_val2', ''), key=f"p_val2_{rule['id']}", label_visibility="collapsed")
-            if cols[8].button("X", key=f"del_filter_{rule['id']}"):
+            
+            with cols[5]:
+                if rule['p_expand']:
+                    exp_cols = st.columns(3)
+                    ops_central = ["E", "OU", "ENTRE"]
+                    rule['p_op_central'] = exp_cols[0].selectbox("Lógica", ops_central, index=ops_central.index(rule['p_op_central']) if rule.get('p_op_central') in ops_central else 0, key=f"p_op_central_{rule['id']}", label_visibility="collapsed")
+                    rule['p_op2'] = exp_cols[1].selectbox("Operador 2", ops, index=ops.index(rule.get('p_op2', '>')) if rule.get('p_op2') in ops else 0, key=f"p_op2_{rule['id']}", label_visibility="collapsed")
+                    rule['p_val2'] = exp_cols[2].text_input("Valor 2", value=rule.get('p_val2', ''), key=f"p_val2_{rule['id']}", label_visibility="collapsed")
+
+            with cols[6]:
+                rule['c_check'] = st.checkbox("Condição", value=rule.get('c_check', False), key=f"c_check_{rule['id']}")
+            
+            action_cols = cols[7].columns(2)
+            if action_cols[0].button("Clonar", key=f"clone_{rule['id']}"):
+                new_rule = copy.deepcopy(rule)
+                new_rule['id'] = str(uuid.uuid4())
+                st.session_state.filter_rules.insert(i + 1, new_rule)
+                st.rerun()
+            if action_cols[1].button("X", key=f"del_filter_{rule['id']}"):
                 st.session_state.filter_rules.pop(i)
                 st.rerun()
 
+            if rule['c_check']:
+                with st.container():
+                    cond_cols = st.columns([0.5, 0.5, 2, 0.5, 2, 4])
+                    cond_cols[1].markdown("↳")
+                    rule['c_idade_check'] = cond_cols[2].checkbox("Idade", value=rule.get('c_idade_check', False), key=f"c_idade_check_{rule['id']}")
+                    if rule['c_idade_check']:
+                        age_cols = cond_cols[3].columns(3)
+                        ops_idade = ["", ">", "<", "≥", "≤", "="]
+                        rule['c_idade_op1'] = age_cols[0].selectbox("Op Idade 1", ops_idade, index=ops_idade.index(rule.get('c_idade_op1','>')) if rule.get('c_idade_op1') in ops_idade else 0, key=f"c_idade_op1_{rule['id']}", label_visibility="collapsed")
+                        rule['c_idade_val1'] = age_cols[1].text_input("Val Idade 1", value=rule.get('c_idade_val1',''), key=f"c_idade_val1_{rule['id']}", label_visibility="collapsed")
+                        age_cols[2].write("E")
+                        rule['c_idade_op2'] = age_cols[0].selectbox("Op Idade 2", ops_idade, index=ops_idade.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_idade else 0, key=f"c_idade_op2_{rule['id']}", label_visibility="collapsed")
+                        rule['c_idade_val2'] = age_cols[1].text_input("Val Idade 2", value=rule.get('c_idade_val2',''), key=f"c_idade_val2_{rule['id']}", label_visibility="collapsed")
+                    
+                    rule['c_sexo_check'] = cond_cols[4].checkbox("Sexo", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule['id']}")
+                    if rule['c_sexo_check']:
+                        rule['c_sexo_val'] = cond_cols[5].text_input("Valor Sexo", value=rule.get('c_sexo_val', ''), key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
+
 def draw_stratum_rules():
-    st.markdown("""
-    <style>
-    .stButton>button {
-        padding: 0.25rem 0.3rem;
-        font-size: 0.8rem;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
+    st.markdown("""<style>.stButton>button {padding: 0.25rem 0.3rem; font-size: 0.8rem;}</style>""", unsafe_allow_html=True)
     for i, stratum_rule in enumerate(st.session_state.stratum_rules):
         with st.container():
             cols = st.columns([2, 1, 1, 0.5, 1, 1, 1])
@@ -303,19 +340,30 @@ def draw_stratum_rules():
                 else:
                     st.warning("Não é possível excluir a última faixa.")
 
-# --- INTERFACE PRINCIPAL DO STREAMLIT ---
-
 def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
-        st.title("Termos de Uso e Conformidade com a LGPD"); st.markdown(MANUAL_CONTENT["Introdução"], unsafe_allow_html=True)
+        st.title("Termos de Uso e Conformidade com a LGPD")
+        st.markdown("""
+        Esta ferramenta foi projetada para processar e filtrar dados de planilhas. 
+        É possível que os arquivos carregados por você contenham dados pessoais sensíveis 
+        (como nome completo, data de nascimento, CPF, etc.), cujo tratamento é regulado pela 
+        Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).
+
+        É de sua **inteira responsabilidade** garantir que todos os dados utilizados nesta ferramenta estejam em 
+        conformidade com a LGPD. Recomendamos fortemente que você utilize apenas dados **previamente anonimizados**.
+
+        O programa executa todas as operações no servidor e a responsabilidade sobre a natureza dos dados processados é exclusivamente sua.
+
+        Para prosseguir, você deve confirmar que os dados a serem utilizados foram devidamente tratados e anonimizados.
+        """)
         accepted = st.checkbox("Ao confirmar, garanto que os dados inseridos estão anonimizados e que não há presença de dados sensíveis.")
         if st.button("Continuar", disabled=not accepted):
             st.session_state.lgpd_accepted = True
             st.rerun()
         return
 
-    if 'filter_rules' not in st.session_state: st.session_state.filter_rules = [dict(r, id=str(uuid.uuid4())) for r in DEFAULT_FILTERS]
+    if 'filter_rules' not in st.session_state: st.session_state.filter_rules = [dict(r, id=str(uuid.uuid4())) for r in copy.deepcopy(DEFAULT_FILTERS)]
     if 'stratum_rules' not in st.session_state: st.session_state.stratum_rules = [{'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}]
     
     with st.sidebar:
@@ -323,7 +371,7 @@ def main():
         topic = st.selectbox("Selecione um tópico", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
         st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
 
-    st.title("Ferramenta de Análise de Planilhas v1.1 (Streamlit)")
+    st.title("Ferramenta de Análise de Planilhas v1.2 (Streamlit)")
 
     with st.expander("1. Configurações Globais", expanded=True):
         uploaded_file = st.file_uploader("Selecione a planilha", type=['csv', 'xlsx', 'xls'])
@@ -341,7 +389,7 @@ def main():
         draw_filter_rules()
         st.markdown("---")
         if st.button("Adicionar Nova Regra de Filtro"):
-            st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': ''})
+            st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OU', 'p_op2': '>', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''})
             st.rerun()
         if st.button("Gerar Planilha Filtrada", type="primary", use_container_width=True):
             if df is None: st.error("Por favor, carregue uma planilha primeiro.")
@@ -370,13 +418,12 @@ def main():
         if st.button("Adicionar Faixa Etária"):
             st.session_state.stratum_rules.append({'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''})
             st.rerun()
-
         if st.button("Gerar Planilhas Estratificadas", type="primary", use_container_width=True):
             if 'confirm_stratify' not in st.session_state: st.session_state.confirm_stratify = True
             st.rerun()
         if st.session_state.get('confirm_stratify', False):
             st.warning("Você confirma que a planilha selecionada é a versão FILTRADA?")
-            c1, c2, c3 = st.columns([1,1,4])
+            c1, c2 = st.columns(2)
             if c1.button("Sim, continuar", use_container_width=True):
                 if df is None: st.error("Por favor, carregue uma planilha primeiro.")
                 else:
@@ -400,7 +447,6 @@ def main():
                 st.session_state.confirm_stratify = False; st.rerun()
             if c2.button("Não, cancelar", use_container_width=True):
                 st.session_state.confirm_stratify = False; st.rerun()
-        
         if st.session_state.get('stratified_results'):
             st.markdown("---"); st.subheader(f"Arquivos para Download ({len(st.session_state.stratified_results)} gerados)")
             is_excel = "Excel" in st.session_state.output_format
