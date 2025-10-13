@@ -41,7 +41,7 @@ Este programa foi projetado para otimizar seu trabalho com grandes volumes de da
 1.  **Filtragem:** Para limpar sua base de dados, removendo linhas que não são de seu interesse.
 2.  **Estratificação:** Para dividir sua base de dados em subgrupos específicos.
 
-Navegue pelos tópicos no menu à esquerda para aprender a usar cada parte da ferramenta.""",
+Navegue pelos tópicos no menu acima para aprender a usar cada parte da ferramenta.""",
     "1. Configurações Globais": """**1. Configurações Globais**
 
 Esta seção, localizada no topo da janela, contém as configurações essenciais que são compartilhadas entre as duas ferramentas. Configure-as uma vez para usar em ambas as abas.
