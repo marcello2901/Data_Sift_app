@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.3
+# Versão 1.3 - Adição de seletores dinâmicos, cabeçalhos com dicas e estilo de borda
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -32,9 +32,8 @@ A responsabilidade sobre a natureza dos dados processados é exclusivamente sua.
 
 Para prosseguir, você deve confirmar que os dados a serem utilizados foram devidamente tratados e anonimizados.
 """
-
 MANUAL_CONTENT = {
-    "Introdução": """**Bem-vindo à Data Sift - Ferramenta de Filtros de Planilhas!**
+    "Introdução": """**Bem-vindo à Ferramenta de Filtros de Planilhas!**
 
 Este programa foi projetado para otimizar seu trabalho com grandes volumes de dados, oferecendo duas funcionalidades principais:
 
@@ -284,10 +283,23 @@ def to_csv(df):
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
 def draw_filter_rules():
-    st.markdown("""<style>.stButton>button {padding: 0.25rem 0.3rem; font-size: 0.8rem; white-space: nowrap;}</style>""", unsafe_allow_html=True)
+    st.markdown("""<style>
+        .stButton>button { padding: 0.25rem 0.3rem; font-size: 0.8rem; white-space: nowrap; }
+        .stTextInput > div > div > input, .stSelectbox > div > div { border: 1px solid rgba(255, 75, 75, 0.15) !important; border-radius: 0.25rem; }
+    </style>""", unsafe_allow_html=True)
+    
+    header_cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5])
+    header_cols[1].markdown("**Coluna** <span title='informação aqui'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[2].markdown("**Operador** <span title='informação aqui'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[3].markdown("**Valor** <span title='informação aqui'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[5].markdown("**Lógica Composta** <span title='informação aqui'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[6].markdown("**Condição** <span title='informação aqui'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[7].markdown("**Ações** <span title='informação aqui'>&#9432;</span>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin-top: -0.5rem; margin-bottom: 0.5rem;'>", unsafe_allow_html=True)
+
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
-            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5]) 
+            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5])
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             rule['p_col'] = cols[1].text_input("Coluna", value=rule.get('p_col', ''), key=f"p_col_{rule['id']}", label_visibility="collapsed")
             ops = ["", ">", "<", "=", "Não é igual a", "≥", "≤"]
@@ -312,7 +324,6 @@ def draw_filter_rules():
             if action_cols[1].button("X", key=f"del_filter_{rule['id']}"):
                 st.session_state.filter_rules.pop(i)
                 st.rerun()
-
             if rule['c_check']:
                 with st.container():
                     cond_cols = st.columns([0.55, 0.5, 1, 3, 1, 3])
@@ -375,16 +386,25 @@ def main():
         topic = st.selectbox("Selecione um tópico", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
         st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
 
-    st.title("Data Sift - Ferramenta de Filtros de Planilhas")
+    st.title("Data Sift")
 
     with st.expander("1. Configurações Globais", expanded=True):
         uploaded_file = st.file_uploader("Selecione a planilha", type=['csv', 'xlsx', 'xls'])
         df = load_dataframe(uploaded_file)
         
+        column_options = []
+        if df is not None:
+            column_options = df.columns.tolist()
+
         c1, c2, c3 = st.columns(3)
-        with c1: st.text_input("Coluna Idade", value="Idade", key="col_idade"); st.text_input("Valor para masculino", value="Masculino", key="val_masculino")
-        with c2: st.text_input("Coluna Sexo", value="Sexo", key="col_sexo"); st.text_input("Valor para feminino", value="Feminino", key="val_feminino")
-        with c3: st.selectbox("Formato de Saída", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
+        with c1: 
+            st.selectbox("Coluna Idade", options=column_options, key="col_idade", index=column_options.index("Idade") if "Idade" in column_options else 0)
+            st.text_input("Valor para masculino", value="Masculino", key="val_masculino")
+        with c2: 
+            st.selectbox("Coluna Sexo", options=column_options, key="col_sexo", index=column_options.index("Sexo") if "Sexo" in column_options else 0)
+            st.text_input("Valor para feminino", value="Feminino", key="val_feminino")
+        with c3: 
+            st.selectbox("Formato de Saída", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
 
     tab_filter, tab_stratify = st.tabs(["2. Ferramenta de Filtro", "3. Ferramenta de Estratificação"])
 
@@ -458,5 +478,4 @@ def main():
                 st.download_button(f"Download {file_name}", data=file_bytes, file_name=file_name)
 
 if __name__ == "__main__":
-
     main()
