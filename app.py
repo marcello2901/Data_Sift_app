@@ -309,7 +309,7 @@ E: Exclui valores dentro de um intervalo, sem os extremos. Ex: > 10 E < 20 remov
     tooltip_text_html = tooltip_text.replace('\n', '&#10;')
     header_cols[5].markdown(f"**Lógica Composta** <span title='{tooltip_text_html}'>&#9432;</span>", unsafe_allow_html=True)
     
-    header_cols[6].markdown("**Condição** <span title='Ative a opção de filtrar por idade ou sexo esta coluna em específico'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[6].markdown("**Condição** <span title='Use quando um critério de exclusão específico (ex: intervalo de referência) muda conforme a idade ou o sexo do paciente.'>&#9432;</span>", unsafe_allow_html=True)
     header_cols[7].markdown("**Ações** <span title='Utilize para duplicar uma regra'>&#9432;</span>", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top: -0.5rem; margin-bottom: 0.5rem;'>", unsafe_allow_html=True)
 
@@ -409,17 +409,16 @@ def main():
         df = load_dataframe(uploaded_file)
         
         column_options = []
-        if df is not None:
-            column_options = df.columns.tolist()
-
+        if df is not None: column_options = [""] + df.columns.tolist()
+        
         c1, c2, c3 = st.columns(3)
-        with c1: 
-            st.selectbox("Coluna Idade", options=column_options, key="col_idade", index=column_options.index("Idade") if "Idade" in column_options else 0)
-            st.text_input("Valor para masculino", value="Masculino", key="val_masculino_text")
-        with c2: 
-            st.selectbox("Sexo/Gênero", options=column_options, key="col_sexo", index=column_options.index("Sexo") if "Sexo" in column_options else 0)
-            st.text_input("Valor para feminino", value="Feminino", key="val_feminino_text")
-        with c3: 
+        with c1:
+            st.selectbox("Coluna Idade", options=column_options, key="col_idade")
+            st.text_input("Valor para masculino (legenda)", value="Masculino", key="val_masculino_legend")
+        with c2:
+            st.selectbox("Sexo/Gênero", options=column_options, key="col_sexo")
+            st.text_input("Valor para feminino (legenda)", value="Feminino", key="val_feminino_legend")
+        with c3:
             st.selectbox("Formato de Saída", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
 
     tab_filter, tab_stratify = st.tabs(["2. Ferramenta de Filtro", "3. Ferramenta de Estratificação"])
