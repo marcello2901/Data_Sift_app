@@ -71,15 +71,16 @@ Cada linha que você adiciona é uma condição para **remover** dados. Se uma l
 
 - **Coluna:** O nome da coluna onde o filtro será aplicado. **Dica:** você pode aplicar a mesma regra a várias colunas de uma vez, separando seus nomes por ponto e vírgula (`;`).
 
-- **Operador e Valor:** Define a lógica da regra. A palavra-chave `vazio` é um recurso poderoso:
+- **Operador e Valor:** Operadores ">", "<", "≥", "≤", "=" definem a lógica da regra. São utilizados para definir os intervalos que serão considerados para que os dados sejam **excluídos**.
+**Dica: **a palavra-chave `vazio` é um recurso poderoso:
     - **Cenário 1: Excluir linhas com dados FALTANTES.**
         - **Configuração:** `Coluna: "Exame_X"`, `Operador: "é igual a"`, `Valor: "vazio"`.
     - **Cenário 2: Manter apenas linhas com dados EXISTENTES.**
         - **Configuração:** `Coluna: "Observações"`, `Operador: "Não é igual a"`, `Valor: "vazio"`.
 
-- **Botão `+` / `-` (Regra Composta):** Expande a regra para criar condições `E` / `OU`.
+- **Regra Composta (Caixa)** Expande a regra para criar condições `E` / `OU`, quando o usuário quer inserir intervalos para exclusão.
 
-- **Condição:** Permite aplicar um filtro secundário. A regra principal só será aplicada às linhas que também atenderem a esta condição.
+- **Condição:** Permite aplicar um filtro secundário. A regra principal só será aplicada às linhas que também atenderem às condições de sexo e/ou idade.
 
 - **Ações:** O botão de `X` apaga a regra. O botão 'Clonar' duplica a regra.
 
