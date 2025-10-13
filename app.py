@@ -292,7 +292,10 @@ def draw_filter_rules():
     header_cols[1].markdown("**Coluna** <span title='Insira o nome da coluna.'>&#9432;</span>", unsafe_allow_html=True)
     header_cols[2].markdown("**Operador** <span title='Utilize os operadores de comparação para definir o primeiro filtro.'>&#9432;</span>", unsafe_allow_html=True)
     header_cols[3].markdown("**Valor** <span title='Insira o valor que deseja excluir dos dados.'>&#9432;</span>", unsafe_allow_html=True)
-    header_cols[5].markdown("**Lógica Composta** <span title='Selecione mais um operador para definir um intervalo no critério de exclusão. Caso deseja excluir valores dentro de um intervalo (ex: entre 10 e 20, pode-se utilizar somente o operador  "ENTRE". Caso deseja manter valores dentro de um intervalo, e excluir o que está fora, utilize o operador "OU" na lógica composta e os operadores "<" e ">" para o menor e maior valor, respectivamente.'>&#9432;</span>", unsafe_allow_html=True)
+    
+    # --- LINHA CORRIGIDA COM ASPAS TRIPLAS ---
+    header_cols[5].markdown(f"""**Lógica Composta** <span title='Selecione mais um operador para definir um intervalo no critério de exclusão. Caso deseja excluir valores dentro de um intervalo (ex: entre 10 e 20, pode-se utilizar somente o operador "ENTRE". Caso deseja manter valores dentro de um intervalo, e excluir o que está fora, utilize o operador "OU" na lógica composta e os operadores "<" e ">" para o menor e maior valor, respectivamente.'>&#9432;</span>""", unsafe_allow_html=True)
+    
     header_cols[6].markdown("**Condição** <span title='Ative a opção de filtrar por idade ou sexo esta coluna em específico'>&#9432;</span>", unsafe_allow_html=True)
     header_cols[7].markdown("**Ações** <span title='Utilize para duplicar uma regra'>&#9432;</span>", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top: -0.5rem; margin-bottom: 0.5rem;'>", unsafe_allow_html=True)
@@ -300,12 +303,14 @@ def draw_filter_rules():
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5])
+            
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             rule['p_col'] = cols[1].text_input("Coluna", value=rule.get('p_col', ''), key=f"p_col_{rule['id']}", label_visibility="collapsed")
             ops = ["", ">", "<", "=", "Não é igual a", "≥", "≤"]
             rule['p_op1'] = cols[2].selectbox("Operador 1", ops, index=ops.index(rule['p_op1']) if rule.get('p_op1') in ops else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
             rule['p_val1'] = cols[3].text_input("Valor 1", value=rule.get('p_val1', ''), key=f"p_val1_{rule['id']}", label_visibility="collapsed")
             rule['p_expand'] = cols[4].checkbox("+", value=rule.get('p_expand', False), key=f"p_expand_{rule['id']}", label_visibility="collapsed")
+            
             with cols[5]:
                 if rule['p_expand']:
                     exp_cols = st.columns(3)
@@ -313,8 +318,10 @@ def draw_filter_rules():
                     rule['p_op_central'] = exp_cols[0].selectbox("Lógica", ops_central, index=ops_central.index(rule['p_op_central']) if rule.get('p_op_central') in ops_central else 0, key=f"p_op_central_{rule['id']}", label_visibility="collapsed")
                     rule['p_op2'] = exp_cols[1].selectbox("Operador 2", ops, index=ops.index(rule.get('p_op2', '>')) if rule.get('p_op2') in ops else 0, key=f"p_op2_{rule['id']}", label_visibility="collapsed")
                     rule['p_val2'] = exp_cols[2].text_input("Valor 2", value=rule.get('p_val2', ''), key=f"p_val2_{rule['id']}", label_visibility="collapsed")
+
             with cols[6]:
                 rule['c_check'] = st.checkbox("Condição", value=rule.get('c_check', False), key=f"c_check_{rule['id']}")
+            
             action_cols = cols[7].columns(2)
             if action_cols[0].button("Clonar", key=f"clone_{rule['id']}"):
                 new_rule = copy.deepcopy(rule)
@@ -324,10 +331,12 @@ def draw_filter_rules():
             if action_cols[1].button("X", key=f"del_filter_{rule['id']}"):
                 st.session_state.filter_rules.pop(i)
                 st.rerun()
+
             if rule['c_check']:
                 with st.container():
                     cond_cols = st.columns([0.55, 0.5, 1, 3, 1, 3])
                     cond_cols[1].markdown("↳")
+                    
                     rule['c_idade_check'] = cond_cols[2].checkbox("Idade", value=rule.get('c_idade_check', False), key=f"c_idade_check_{rule['id']}")
                     with cond_cols[3]:
                         if rule['c_idade_check']:
@@ -338,6 +347,7 @@ def draw_filter_rules():
                             age_cols[2].write("E")
                             rule['c_idade_op2'] = age_cols[3].selectbox("Op Idade 2", ops_idade, index=ops_idade.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_idade else 0, key=f"c_idade_op2_{rule['id']}", label_visibility="collapsed")
                             rule['c_idade_val2'] = age_cols[4].text_input("Val Idade 2", value=rule.get('c_idade_val2',''), key=f"c_idade_val2_{rule['id']}", label_visibility="collapsed")
+                    
                     rule['c_sexo_check'] = cond_cols[4].checkbox("Sexo", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule['id']}")
                     with cond_cols[5]:
                         if rule['c_sexo_check']:
