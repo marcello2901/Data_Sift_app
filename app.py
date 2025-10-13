@@ -44,7 +44,7 @@ Esta seção, localizada no topo da janela, contém as configurações essenciai
   Menu de seleção para escolher o formato dos arquivos gerados. O padrão é `.csv`. Escolha `Excel (.xlsx)` para maior compatibilidade com o Microsoft Excel ou `CSV (.csv)` para um formato mais leve e universal.
 
 - **Download do arquivo de saída**
-  Após a geração da planilha filtrada, um botão de nome "Download da Planilha Filtrada" ficará disponível, permitindo desta nova planilha.""",
+  Após a geração da planilha filtrada, um botão ficará disponível, permitindo o download desta nova planilha.""",
     "2. Ferramenta de Filtro": """**2. Ferramenta de Filtro**
 
 O objetivo desta ferramenta é **"limpar"** sua planilha, **removendo** linhas que correspondam a critérios específicos. O resultado é um **único arquivo** contendo apenas os dados que "sobreviveram" aos filtros.
