@@ -34,7 +34,7 @@ Para prosseguir, você deve confirmar que os dados a serem utilizados foram devi
 """
 
 MANUAL_CONTENT = {
-    "Introdução": """**Bem-vindo à Ferramenta de Filtros de Planilhas!**
+    "Introdução": """**Bem-vindo à Data Sift - Ferramenta de Filtros de Planilhas!**
 
 Este programa foi projetado para otimizar seu trabalho com grandes volumes de dados, oferecendo duas funcionalidades principais:
 
