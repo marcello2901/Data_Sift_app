@@ -294,7 +294,21 @@ def draw_filter_rules():
     header_cols[3].markdown("**Valor** <span title='Insira o valor que deseja excluir dos dados.'>&#9432;</span>", unsafe_allow_html=True)
     
     # --- LINHA CORRIGIDA COM ASPAS TRIPLAS ---
-    header_cols[5].markdown(f"""**Lógica Composta** <span title='Selecione mais um operador para definir um intervalo no critério de exclusão. Caso deseja excluir valores dentro de um intervalo (ex: entre 10 e 20, pode-se utilizar somente o operador "ENTRE". Caso deseja manter valores dentro de um intervalo, e excluir o que está fora, utilize o operador "OU" na lógica composta e os operadores "<" e ">" para o menor e maior valor, respectivamente.'>&#9432;</span>""", unsafe_allow_html=True)
+    header_cols[5].markdown(f"""**Lógica Composta** <span title='Selecione mais um operador para definir um intervalo
+
+Como utilizar:
+
+**ENTRE:** Exclui valores dentro do intervalo (inclusive).
+
+**Ex:** ENTRE 10 e 20 remove tudo de 10 a 20.
+
+**OU:** Exclui valores fora de um intervalo. Use para manter os dados que estão no meio.
+
+**Ex:** < 10 OU > 20 remove tudo que for menor que 10 e maior que 20.
+
+**E:** Exclui valores dentro de um intervalo, sem os extremos.
+
+**Ex:** > 10 E < 20 remove de 11 a 19 (mantém os valores 10 e 20).'>&#9432;</span>""", unsafe_allow_html=True)
     
     header_cols[6].markdown("**Condição** <span title='Ative a opção de filtrar por idade ou sexo esta coluna em específico'>&#9432;</span>", unsafe_allow_html=True)
     header_cols[7].markdown("**Ações** <span title='Utilize para duplicar uma regra'>&#9432;</span>", unsafe_allow_html=True)
