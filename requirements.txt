@@ -3,3 +3,5 @@ openpyxl
 xlrd
 Pillow
 streamlit
+streamlit-authenticator
+pip install pyyaml
