@@ -588,24 +588,34 @@ def draw_stratum_rules():
 def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
-        # ... (código da tela de aceite de termos) ...
+        st.title("Welcome to Data Sift!")
+        st.markdown("This program is designed to optimize your work with large volumes of data, offering features to exclude data from spreadsheets using filters and to stratify the filtered spreadsheet. Please read the terms below to proceed.")
+        st.divider()
+        st.header("Terms of Use and Data Protection Compliance")
+        st.markdown(GDPR_TERMS) 
+        accepted = st.checkbox("By checking this box, I confirm that the data provided is anonymized and contains no sensitive personal data.")
+        if st.button("Continue", disabled=not accepted):
+            st.session_state.lgpd_accepted = True
+            st.rerun()
         return
 
-    # ### INÍCIO DA SEÇÃO DE AUTENTICAÇÃO ATUALIZADA ###
-    # Tenta carregar as credenciais dos Secrets do Streamlit Cloud primeiro
-    if 'credentials' in st.secrets:
+    # ### INÍCIO DA SEÇÃO DE AUTENTICAÇÃO CORRIGIDA ###
+    
+    # Tenta carregar a configuração a partir dos Secrets do Streamlit Cloud
+    # O st.secrets se parece com um dicionário e já é carregado a partir do formato TOML
+    try:
         config = {
-            'credentials': dict(st.secrets['credentials']),
-            'cookie': dict(st.secrets['cookie']),
-            'preauthorized': dict(st.secrets['preauthorized'])
+            'credentials': st.secrets['credentials'],
+            'cookie': st.secrets['cookie'],
+            'preauthorized': st.secrets['preauthorized']
         }
-    # Se não encontrar, carrega do arquivo local config.yaml (para desenvolvimento)
-    else:
+    # Se der erro (rodando localmente sem secrets), carrega do arquivo .yaml
+    except (KeyError, AttributeError):
         try:
             with open('config.yaml') as file:
                 config = yaml.load(file, Loader=SafeLoader)
         except FileNotFoundError:
-            st.error("`config.yaml` not found. Please create it for local development or set secrets for deployment.")
+            st.error("Arquivo `config.yaml` não encontrado. Crie o arquivo para rodar localmente ou configure os Secrets no Streamlit Cloud.")
             return
 
     authenticator = stauth.Authenticate(
@@ -615,6 +625,7 @@ def main():
         config['cookie']['expiry_days']
     )
 
+    # --- Interface de Login na Sidebar ---
     with st.sidebar:
         st.title("👤 User Account")
         if st.session_state.get("authentication_status"):
@@ -625,14 +636,10 @@ def main():
             with login_tab:
                 authenticator.login('Login', 'main')
             with register_tab:
-                try:
-                    if authenticator.register_user('Register user', preauthorization=False):
-                        with open('config.yaml', 'w') as file:
-                            yaml.dump(config, file, default_flow_style=False)
-                        st.success('User registered successfully. Please go to the Login tab.')
-                except Exception as e:
-                    st.error(e)
-        
+                st.info("User registration is currently handled by the administrator. Please contact them to create an account.")
+                # A lógica de registro que escreve em arquivo foi removida para compatibilidade com o deploy.
+                # O administrador deve adicionar usuários manualmente nos Secrets.
+
         st.divider()
         st.title("User Manual")
         topic = st.selectbox("Select a topic", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
