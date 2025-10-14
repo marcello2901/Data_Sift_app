@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 2.0 - Autenticação Opcional de Usuários
+# Versão 3.0 - Arquitetura de Autenticação Robusta
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -14,7 +14,7 @@ import os
 import json
 import re
 
-# --- IMPORTAÇÕES PARA AUTENTICAÇÃO ---
+# --- Módulos de Autenticação ---
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
@@ -22,12 +22,11 @@ import streamlit_authenticator as stauth
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Data Sift")
 
-# --- CRIAÇÃO DO DIRETÓRIO PARA SALVAR OS FILTROS ---
-# Garante que a pasta 'saved_filters' exista
+# --- CRIAÇÃO DE DIRETÓRIO LOCAL ---
 if not os.path.exists('saved_filters'):
     os.makedirs('saved_filters')
 
-# --- CONSTANTES E DADOS ---
+# --- CONSTANTES E DADOS GLOBAIS ---
 GDPR_TERMS = """
 This tool is designed to process and filter data from spreadsheets. The files you upload may contain sensitive personal data (such as full name, date of birth, national ID numbers, health information, etc.), the processing of which is regulated by data protection laws like the General Data Protection Regulation (GDPR or LGPD).
 
@@ -107,7 +106,6 @@ DEFAULT_FILTERS = [
 ]
 
 # --- CLASSES DE PROCESSAMENTO ---
-
 @st.cache_resource
 def get_data_processor():
     return DataProcessor()
@@ -328,8 +326,7 @@ class DataProcessor:
             if sex_name: name_parts.append(sex_name)
         return "_".join(part for part in name_parts if part)
 
-# --- FUNÇÕES DE GERENCIAMENTO DE FILTROS (MODIFICADAS PARA USAR 'username') ---
-
+# --- FUNÇÕES DE GERENCIAMENTO DE FILTROS ---
 def sanitize_filename(name):
     name = re.sub(r'[^\w\s-]', '', name).strip()
     name = re.sub(r'[-\s]+', '_', name)
@@ -388,8 +385,7 @@ def delete_filter(username: str, name: str):
     except Exception as e:
         st.error(f"Error deleting filter: {e}")
 
-# --- FUNÇÕES AUXILIARES ---
-
+# --- FUNÇÕES AUXILIARES E DE INTERFACE ---
 @st.cache_data
 def load_dataframe(uploaded_file):
     if uploaded_file is None: return None
@@ -413,8 +409,6 @@ def to_excel(df):
 
 def to_csv(df):
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
-
-# --- FUNÇÕES DE INTERFACE ---
 
 def handle_select_all():
     new_state = st.session_state.get('select_all_master_checkbox', False)
@@ -599,25 +593,26 @@ def main():
             st.rerun()
         return
 
-    # ### INÍCIO DA SEÇÃO DE AUTENTICAÇÃO CORRIGIDA ###
-    
-    # Tenta carregar a configuração a partir dos Secrets do Streamlit Cloud
-    # O st.secrets se parece com um dicionário e já é carregado a partir do formato TOML
-    try:
-        config = {
-            'credentials': st.secrets['credentials'],
-            'cookie': st.secrets['cookie'],
-            'preauthorized': st.secrets['preauthorized']
-        }
-    # Se der erro (rodando localmente sem secrets), carrega do arquivo .yaml
-    except (KeyError, AttributeError):
+    # --- ARQUITETURA DE AUTENTICAÇÃO REVISADA ---
+    config = None
+    # Prioriza o carregamento via st.secrets (para o deploy no Streamlit Cloud)
+    if hasattr(st, 'secrets'):
+        try:
+            # Converte o objeto imutável de secrets para um dicionário mutável
+            config = dict(st.secrets)
+        except Exception:
+            pass # Se falhar, tentará o modo local
+
+    # Se a configuração não foi carregada pela nuvem, tenta o modo local
+    if not config:
         try:
             with open('config.yaml') as file:
                 config = yaml.load(file, Loader=SafeLoader)
         except FileNotFoundError:
-            st.error("Arquivo `config.yaml` não encontrado. Crie o arquivo para rodar localmente ou configure os Secrets no Streamlit Cloud.")
+            st.error("Arquivo de configuração não encontrado. Para deploy, configure os 'Secrets'. Para rodar localmente, crie o 'config.yaml'.")
             return
 
+    # Cria o objeto de autenticação com a configuração carregada
     authenticator = stauth.Authenticate(
         config['credentials'],
         config['cookie']['name'],
@@ -625,7 +620,7 @@ def main():
         config['cookie']['expiry_days']
     )
 
-    # --- Interface de Login na Sidebar ---
+    # --- Interface de Login/Logout na Sidebar ---
     with st.sidebar:
         st.title("👤 User Account")
         if st.session_state.get("authentication_status"):
@@ -636,16 +631,14 @@ def main():
             with login_tab:
                 authenticator.login('Login', 'main')
             with register_tab:
-                st.info("User registration is currently handled by the administrator. Please contact them to create an account.")
-                # A lógica de registro que escreve em arquivo foi removida para compatibilidade com o deploy.
-                # O administrador deve adicionar usuários manualmente nos Secrets.
-
+                st.info("O registro de novos usuários é feito pelo administrador. Por favor, entre em contato para criar uma conta.")
+        
         st.divider()
         st.title("User Manual")
         topic = st.selectbox("Select a topic", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
         st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
-    # ### FIM DA SEÇÃO DE AUTENTICAÇÃO ###
-
+    
+    # --- INICIALIZAÇÃO DO ESTADO DA SESSÃO ---
     if 'filter_rules' not in st.session_state: 
         st.session_state.filter_rules = copy.deepcopy(DEFAULT_FILTERS)
     if 'stratum_rules' not in st.session_state: 
@@ -653,6 +646,7 @@ def main():
     
     st.title("Data Sift")
 
+    # --- LAYOUT PRINCIPAL DO APP ---
     with st.expander("1. Global Settings", expanded=True):
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls'])
         df = load_dataframe(uploaded_file)
@@ -734,8 +728,8 @@ def main():
                     if st.button("Save Current Filters", use_container_width=True, disabled=not new_name):
                         save_filters(username, new_name, st.session_state.filter_rules)
             else:
-                st.info("Please log in or register to save and manage your personal filter sets.")
-                st.markdown("Use the **Login** and **Register** tabs in the sidebar 👤.")
+                st.info("Please log in to save and manage your personal filter sets.")
+                st.markdown("Use the **Login** tab in the sidebar 👤.")
 
         st.header("Exclusion Rules")
         draw_filter_rules(sex_column_values, column_options)
