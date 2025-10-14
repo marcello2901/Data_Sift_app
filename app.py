@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9 - Correção definitiva do marcador "Selecionar Todos" e implementação de placeholders
+# Versão 2.0 - Autenticação Opcional de Usuários
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -101,9 +101,9 @@ Unlike the filter, the purpose of this tool is to **split** your spreadsheet int
   - **Confirmation:** Before starting, the program will ask if you are using an already filtered spreadsheet."""
 }
 DEFAULT_FILTERS = [
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '50', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '600', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '>', 'p_val1': '5', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'CAPA.IST', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '50', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ferritina.FERRI', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '600', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ultra-PCR.ULTRAPCR', 'p_op1': '>', 'p_val1': '5', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
 ]
 
 # --- CLASSES DE PROCESSAMENTO ---
@@ -196,10 +196,6 @@ class DataProcessor:
             progress_bar.progress(progress, text=f"Applying filter {i+1}/{total_filters}: '{col_name[:30]}...'")
 
             col_config_str = f_config.get('p_col', '')
-            # A lógica para múltiplas colunas (separadas por ';') foi mantida.
-            # Se for usado selectbox (uma coluna), este código ainda funciona.
-            # Para manter a funcionalidade original de múltiplas colunas, o campo teria que ser um text_input.
-            # Como a solicitação foi para usar o mesmo funcionamento (selectbox), esta lógica se aplicará a uma única coluna por regra.
             cols_to_check = [c.strip() for c in col_config_str.split(';') if c.strip()]
 
             is_numeric_filter = f_config.get('p_val1', '').lower() != 'empty'
@@ -332,7 +328,7 @@ class DataProcessor:
             if sex_name: name_parts.append(sex_name)
         return "_".join(part for part in name_parts if part)
 
-v# --- FUNÇÕES DE GERENCIAMENTO DE FILTROS (MODIFICADAS PARA USAR 'username') ---
+# --- FUNÇÕES DE GERENCIAMENTO DE FILTROS (MODIFICADAS PARA USAR 'username') ---
 
 def sanitize_filename(name):
     name = re.sub(r'[^\w\s-]', '', name).strip()
@@ -425,15 +421,13 @@ def handle_select_all():
     for rule in st.session_state.filter_rules:
         rule['p_check'] = new_state
 
-# ######### INÍCIO DAS ALTERAÇÕES #########
-def draw_filter_rules(sex_column_values, column_options): # Parâmetro adicionado
+def draw_filter_rules(sex_column_values, column_options):
     st.markdown("""<style>
         .stButton>button { padding: 0.25rem 0.3rem; font-size: 0.8rem; white-space: nowrap; }
         div[data-testid="stTextInput"] input, div[data-testid="stSelectbox"] div[data-baseweb="select"] {
             border: 1px solid rgba(255, 75, 75, 0.15) !important;
             border-radius: 0.25rem;
         }
-        /* Estilo para o placeholder do selectbox */
         div[data-baseweb="select"] input::placeholder {
             color: black !important;
             opacity: 0.2 !important;
@@ -482,20 +476,19 @@ AND: Excludes values within an interval, without the extremes. Ex: > 10 AND < 20
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             
-            # --- CAMPO DE TEXTO ALTERADO PARA SELECTBOX ---
             current_col = rule.get('p_col')
             current_index = None
             if current_col and column_options:
                 try:
                     current_index = column_options.index(current_col)
                 except ValueError:
-                    current_index = None # Coluna salva não existe nas opções atuais
+                    current_index = None
             
             rule['p_col'] = cols[1].selectbox(
                 "Column", 
                 options=column_options, 
                 index=current_index,
-                placeholder="Select column to filter", # Placeholder adicionado
+                placeholder="Select column to filter",
                 key=f"p_col_{rule['id']}", 
                 label_visibility="collapsed"
             )
@@ -549,8 +542,7 @@ AND: Excludes values within an interval, without the extremes. Ex: > 10 AND < 20
                     rule['c_sexo_check'] = cond_cols[4].checkbox("Sex/Gender", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule['id']}")
                     with cond_cols[5]:
                         if rule['c_sexo_check']:
-                            # Adicionado placeholder aqui também, por consistência, embora o comportamento seja um pouco diferente
-                            sex_options = [v for v in sex_column_values if v] # Remove o valor vazio se houver
+                            sex_options = [v for v in sex_column_values if v]
                             current_sex = rule.get('c_sexo_val')
                             sex_index = None
                             if current_sex and sex_options:
@@ -566,11 +558,13 @@ AND: Excludes values within an interval, without the extremes. Ex: > 10 AND < 20
                                 key=f"c_sexo_val_{rule['id']}", 
                                 label_visibility="collapsed")
         st.markdown("---")
-# ######### FIM DAS ALTERAÇÕES #########
 
 def draw_stratum_rules():
     st.markdown("""<style>.stButton>button {padding: 0.25rem 0.3rem; font-size: 0.8rem;}</style>""", unsafe_allow_html=True)
     ops_stratum = ["", ">", "<", "≥", "≤"]
+
+    if 'stratum_rules' not in st.session_state:
+        st.session_state.stratum_rules = [{'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}]
 
     for i, stratum_rule in enumerate(st.session_state.stratum_rules):
         with st.container():
@@ -591,68 +585,11 @@ def draw_stratum_rules():
                     st.warning("Cannot delete the last age range.")
         st.markdown("---")
 
-# --- FUNÇÕES DE GERENCIAMENTO DE FILTROS ---
-
-def sanitize_filename(name):
-    """Remove caracteres inválidos de um nome para usá-lo como nome de arquivo."""
-    name = re.sub(r'[^\w\s-]', '', name).strip()
-    name = re.sub(r'[-\s]+', '_', name)
-    return name
-
-def save_filters(name: str, rules: list):
-    """Salva a lista de regras de filtro em um arquivo JSON."""
-    filename = sanitize_filename(name)
-    if not filename:
-        st.error("O nome do filtro não pode estar vazio ou conter apenas caracteres inválidos.")
-        return
-    
-    filepath = os.path.join('saved_filters', f"{filename}.json")
-    try:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(rules, f, indent=4)
-        st.success(f"Filtro '{name}' salvo com sucesso!")
-    except Exception as e:
-        st.error(f"Erro ao salvar o filtro: {e}")
-
-def load_filters(name: str) -> list | None:
-    """Carrega uma lista de regras de filtro de um arquivo JSON."""
-    filename = sanitize_filename(name)
-    filepath = os.path.join('saved_filters', f"{filename}.json")
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        st.error(f"Arquivo de filtro '{name}' não encontrado.")
-        return None
-    except Exception as e:
-        st.error(f"Erro ao carregar o filtro: {e}")
-        return None
-
-def get_saved_filter_names() -> list:
-    """Retorna uma lista com os nomes dos filtros salvos."""
-    files = os.listdir('saved_filters')
-    # Extrai o nome do arquivo sem a extensão .json e substitui underscores por espaços
-    names = [os.path.splitext(f)[0].replace('_', ' ') for f in files if f.endswith('.json')]
-    return sorted(names)
-
-def delete_filter(name: str):
-    """Deleta um arquivo de filtro salvo."""
-    filename = sanitize_filename(name)
-    filepath = os.path.join('saved_filters', f"{filename}.json")
-    try:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-            st.success(f"Filtro '{name}' deletado com sucesso!")
-        else:
-            st.warning("Filtro não encontrado para deleção.")
-    except Exception as e:
-        st.error(f"Erro ao deletar o filtro: {e}")
-
 def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
         st.title("Welcome to Data Sift!")
-        st.markdown("This program is designed to optimize your work with large volumes of data, offering features to exclude data from spreadsheets using filters and to stratify the filtered spreadsheet. Please read the terms below to proceed.")
+        st.markdown("This program is designed to optimize your work with large volumes of data...")
         st.divider()
         st.header("Terms of Use and Data Protection Compliance")
         st.markdown(GDPR_TERMS) 
@@ -662,7 +599,7 @@ def main():
             st.rerun()
         return
 
-   # ### INÍCIO DA SEÇÃO DE AUTENTICAÇÃO ###
+    # ### INÍCIO DA SEÇÃO DE AUTENTICAÇÃO ###
     try:
         with open('config.yaml') as file:
             config = yaml.load(file, Loader=SafeLoader)
@@ -703,44 +640,24 @@ def main():
 
     if 'filter_rules' not in st.session_state: 
         st.session_state.filter_rules = copy.deepcopy(DEFAULT_FILTERS)
-
-    if 'stratum_rules' not in st.session_state: st.session_state.stratum_rules = [{'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}]
+    if 'stratum_rules' not in st.session_state: 
+        st.session_state.stratum_rules = [{'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}]
     
-    with st.sidebar:
-        st.title("User Manual")
-        topic = st.selectbox("Select a topic", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
-        st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
-
     st.title("Data Sift")
 
     with st.expander("1. Global Settings", expanded=True):
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls'])
         df = load_dataframe(uploaded_file)
         
-        # ######### INÍCIO DA ALTERAÇÃO #########
-        # Opções de coluna sem o item vazio para permitir o placeholder
         column_options = df.columns.tolist() if df is not None else []
         
         c1, c2, c3 = st.columns(3)
         with c1: 
-            st.selectbox(
-                "Age Column", 
-                options=column_options, 
-                key="col_idade", 
-                index=None, # Define o padrão como não selecionado
-                placeholder="Select the Age column" # Adiciona o placeholder
-            )
+            st.selectbox("Age Column", options=column_options, key="col_idade", index=None, placeholder="Select the Age column")
         with c2: 
-            st.selectbox(
-                "Sex/Gender Column", 
-                options=column_options, 
-                key="col_sexo", 
-                index=None, # Define o padrão como não selecionado
-                placeholder="Select the Sex/Gender column" # Adiciona o placeholder
-            )
+            st.selectbox("Sex/Gender Column", options=column_options, key="col_sexo", index=None, placeholder="Select the Sex/Gender column")
         with c3: 
             st.selectbox("Output Format", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
-        # ######### FIM DA ALTERAÇÃO #########
 
         st.session_state.sex_column_is_valid = True
         st.session_state.age_column_is_valid = True
@@ -751,12 +668,12 @@ def main():
                 try:
                     unique_sex_values = df[st.session_state.col_sexo].dropna().unique()
                     if len(unique_sex_values) > 10:
-                        st.warning(f"A coluna '{st.session_state.col_sexo}' possui {len(unique_sex_values)} valores únicos, excedendo o limite de 10. A estratificação por gênero foi desativada.")
+                        st.warning(f"Column '{st.session_state.col_sexo}' has {len(unique_sex_values)} unique values, exceeding the limit of 10. Stratification by gender has been disabled.")
                         st.session_state.sex_column_is_valid = False
                     else:
-                        sex_column_values = [""] + list(unique_sex_values) # Mantido para compatibilidade com partes existentes
+                        sex_column_values = [""] + list(unique_sex_values)
                 except KeyError:
-                    st.warning(f"Coluna '{st.session_state.col_sexo}' não encontrada."); st.session_state.sex_column_is_valid = False
+                    st.warning(f"Column '{st.session_state.col_sexo}' not found."); st.session_state.sex_column_is_valid = False
 
             if st.session_state.col_idade:
                 try:
@@ -765,19 +682,18 @@ def main():
                     non_numeric_ratio = numeric_ages.isna().sum() / len(age_col) if len(age_col) > 0 else 0
 
                     if non_numeric_ratio > 0.2:
-                        st.warning(f"A coluna '{st.session_state.col_idade}' não parece conter dados de idade válidos (mais de 20% não são números). As funções que dependem da idade estão desativadas.")
+                        st.warning(f"Column '{st.session_state.col_idade}' does not seem to contain valid age data (>20% are not numbers). Age-dependent functions are disabled.")
                         st.session_state.age_column_is_valid = False
                     elif age_col.nunique() > 120:
-                        st.warning(f"A coluna '{st.session_state.col_idade}' possui {age_col.nunique()} valores únicos, excedendo o limite de 120.")
+                        st.warning(f"Column '{st.session_state.col_idade}' has {age_col.nunique()} unique values, exceeding the limit of 120.")
                 except KeyError:
-                    st.warning(f"Coluna '{st.session_state.col_idade}' não encontrada."); st.session_state.age_column_is_valid = False
+                    st.warning(f"Column '{st.session_state.col_idade}' not found."); st.session_state.age_column_is_valid = False
 
     is_ready_for_processing = st.session_state.age_column_is_valid and st.session_state.sex_column_is_valid
     
     tab_filter, tab_stratify = st.tabs(["2. Filter Tool", "3. Stratification Tool"])
 
     with tab_filter:
-       # ### INÍCIO DA SEÇÃO DE GERENCIAMENTO CONDICIONAL ###
         with st.expander("📂 Manage Filter Sets"):
             if st.session_state.get("authentication_status"):
                 username = st.session_state["username"]
@@ -812,10 +728,10 @@ def main():
             else:
                 st.info("Please log in or register to save and manage your personal filter sets.")
                 st.markdown("Use the **Login** and **Register** tabs in the sidebar 👤.")
-        # ### FIM DA SEÇÃO DE GERENCIAMENTO CONDICIONAL ###
 
         st.header("Exclusion Rules")
-        draw_filter_rules(sex_column_values, column_options) # Passa as opções de coluna
+        draw_filter_rules(sex_column_values, column_options)
+        
         if st.button("Add New Filter Rule"):
             st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''})
             st.rerun()
@@ -830,7 +746,7 @@ def main():
                     filtered_df = processor.apply_filters(df, st.session_state.filter_rules, global_config, progress_bar)
                     
                     if filtered_df.empty:
-                        st.success("Filtros aplicados com sucesso! Nenhuma linha corresponde aos critérios para permanecer na planilha.")
+                        st.success("Filters applied successfully! No rows matched the criteria to remain in the sheet.")
                         if 'filtered_result' in st.session_state: del st.session_state['filtered_result']
                     else:
                         st.success(f"Spreadsheet filtered successfully! {len(filtered_df)} rows remaining.")
@@ -842,62 +758,22 @@ def main():
 
         if 'filtered_result' in st.session_state:
             st.download_button("Download Filtered Sheet", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True)
-        with st.expander("📂 Manage Filter Sets"):
-            saved_filter_names = get_saved_filter_names()
-            
-            # --- Seção de Carregar e Deletar ---
-            if saved_filter_names:
-                col1, col2, col3 = st.columns([2, 1, 1])
-                
-                with col1:
-                    selected_filter_to_load = st.selectbox(
-                        "Load a saved filter set", 
-                        options=saved_filter_names,
-                        index=None,
-                        placeholder="Select a filter set to load or delete"
-                    )
-                
-                with col2:
-                    if st.button("Load", use_container_width=True, disabled=not selected_filter_to_load):
-                        loaded_rules = load_filters(selected_filter_to_load)
-                        if loaded_rules:
-                            # Adiciona IDs únicos para as novas regras carregadas para evitar conflitos de key
-                            for rule in loaded_rules:
-                                rule['id'] = str(uuid.uuid4())
-                            st.session_state.filter_rules = loaded_rules
-                            st.rerun()
 
-                with col3:
-                    if st.button("Delete", use_container_width=True, disabled=not selected_filter_to_load):
-                        delete_filter(selected_filter_to_load)
-                        st.rerun()
-            else:
-                st.info("No filter sets saved yet. Use the section below to save the current rules.")
-
-            st.divider()
-
-            # --- Seção de Salvar ---
-            col_save1, col_save2 = st.columns([2, 1])
-            with col_save1:
-                new_filter_name = st.text_input("Enter a name to save the current filter set", placeholder="Example: Monthly Report Filters")
-            with col_save2:
-                if st.button("Save Current Filters", use_container_width=True, disabled=not new_filter_name):
-                    save_filters(new_filter_name, st.session_state.filter_rules)
     with tab_stratify:
         st.header("Stratification Options by Sex/Gender")
         
         if not st.session_state.sex_column_is_valid:
-            st.info("Select a valid 'Sex/Gender Column' in Global Settings with 5 or fewer unique values to see options.")
+            st.info("Select a valid 'Sex/Gender Column' in Global Settings with 10 or fewer unique values to see options.")
         elif not sex_column_values:
             st.info("Upload a spreadsheet and select the 'Sex/Gender Column' in Global Settings to see options.")
         else:
             if 'strat_gender_selection' not in st.session_state:
                 st.session_state.strat_gender_selection = {val: True for val in sex_column_values if val}
             
-            cols = st.columns(min(len(sex_column_values), 5))
+            unique_genders = [val for val in sex_column_values if val]
+            cols = st.columns(min(len(unique_genders), 5))
             col_idx = 0
-            for gender_val in sex_column_values:
-                if not gender_val: continue
+            for gender_val in unique_genders:
                 st.session_state.strat_gender_selection[gender_val] = cols[col_idx].checkbox(str(gender_val), value=st.session_state.strat_gender_selection.get(gender_val, True), key=f"strat_check_{gender_val}")
                 col_idx = (col_idx + 1) % len(cols)
 
@@ -916,7 +792,7 @@ def main():
             sex_rules_count = sum(1 for val, selected in st.session_state.get('strat_gender_selection', {}).items() if selected)
             total_files = age_rules_count * sex_rules_count if age_rules_count > 0 and sex_rules_count > 0 else age_rules_count + sex_rules_count
             
-            warning_msg = f"Atenção: Esta operação irá gerar {total_files} arquivos." if total_files > 30 else ""
+            warning_msg = f"Attention: This operation will generate {total_files} files." if total_files > 30 else ""
             st.warning(f"Do you confirm that the selected spreadsheet is the FILTERED version? {warning_msg}")
 
             c1, c2 = st.columns(2)
