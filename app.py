@@ -14,6 +14,11 @@ import os
 import json
 import re
 
+# --- IMPORTAÇÕES PARA AUTENTICAÇÃO ---
+import yaml
+from yaml.loader import SafeLoader
+import streamlit_authenticator as stauth
+
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Data Sift")
 
@@ -96,9 +101,9 @@ Unlike the filter, the purpose of this tool is to **split** your spreadsheet int
   - **Confirmation:** Before starting, the program will ask if you are using an already filtered spreadsheet."""
 }
 DEFAULT_FILTERS = [
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'CAPA.IST', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '50', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ferritina.FERRI', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '600', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ultra-PCR.ULTRAPCR', 'p_op1': '>', 'p_val1': '5', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '50', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '600', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '>', 'p_val1': '5', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
 ]
 
 # --- CLASSES DE PROCESSAMENTO ---
@@ -326,6 +331,66 @@ class DataProcessor:
             sex_name = str(sex_rule.get('value', '')).replace(' ', '_')
             if sex_name: name_parts.append(sex_name)
         return "_".join(part for part in name_parts if part)
+
+v# --- FUNÇÕES DE GERENCIAMENTO DE FILTROS (MODIFICADAS PARA USAR 'username') ---
+
+def sanitize_filename(name):
+    name = re.sub(r'[^\w\s-]', '', name).strip()
+    name = re.sub(r'[-\s]+', '_', name)
+    return name
+
+def save_filters(username: str, name: str, rules: list):
+    user_folder = os.path.join('saved_filters', username)
+    if not os.path.exists(user_folder):
+        os.makedirs(user_folder)
+    
+    filename = sanitize_filename(name)
+    if not filename:
+        st.error("The filter name cannot be empty or contain only invalid characters.")
+        return
+    
+    filepath = os.path.join(user_folder, f"{filename}.json")
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(rules, f, indent=4)
+        st.success(f"Filter '{name}' saved successfully!")
+    except Exception as e:
+        st.error(f"Error saving filter: {e}")
+
+def load_filters(username: str, name: str) -> list | None:
+    user_folder = os.path.join('saved_filters', username)
+    filename = sanitize_filename(name)
+    filepath = os.path.join(user_folder, f"{filename}.json")
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        st.error(f"Filter file '{name}' not found.")
+        return None
+    except Exception as e:
+        st.error(f"Error loading filter: {e}")
+        return None
+
+def get_saved_filter_names(username: str) -> list:
+    user_folder = os.path.join('saved_filters', username)
+    if not os.path.isdir(user_folder):
+        return []
+    files = os.listdir(user_folder)
+    names = [os.path.splitext(f)[0].replace('_', ' ') for f in files if f.endswith('.json')]
+    return sorted(names)
+
+def delete_filter(username: str, name: str):
+    user_folder = os.path.join('saved_filters', username)
+    filename = sanitize_filename(name)
+    filepath = os.path.join(user_folder, f"{filename}.json")
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            st.success(f"Filter '{name}' deleted successfully!")
+        else:
+            st.warning("Filter not found for deletion.")
+    except Exception as e:
+        st.error(f"Error deleting filter: {e}")
 
 # --- FUNÇÕES AUXILIARES ---
 
@@ -597,6 +662,45 @@ def main():
             st.rerun()
         return
 
+   # ### INÍCIO DA SEÇÃO DE AUTENTICAÇÃO ###
+    try:
+        with open('config.yaml') as file:
+            config = yaml.load(file, Loader=SafeLoader)
+    except FileNotFoundError:
+        st.error("`config.yaml` not found. Please create the configuration file.")
+        return
+
+    authenticator = stauth.Authenticate(
+        config['credentials'],
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days']
+    )
+
+    with st.sidebar:
+        st.title("👤 User Account")
+        if st.session_state.get("authentication_status"):
+            st.write(f'Welcome *{st.session_state["name"]}*')
+            authenticator.logout('Logout', 'main', key='unique_logout_key')
+        else:
+            login_tab, register_tab = st.tabs(["Login", "Register"])
+            with login_tab:
+                authenticator.login('Login', 'main')
+            with register_tab:
+                try:
+                    if authenticator.register_user('Register user', preauthorization=False):
+                        with open('config.yaml', 'w') as file:
+                            yaml.dump(config, file, default_flow_style=False)
+                        st.success('User registered successfully. Please go to the Login tab.')
+                except Exception as e:
+                    st.error(e)
+        
+        st.divider()
+        st.title("User Manual")
+        topic = st.selectbox("Select a topic", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
+        st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
+    # ### FIM DA SEÇÃO DE AUTENTICAÇÃO ###
+
     if 'filter_rules' not in st.session_state: 
         st.session_state.filter_rules = copy.deepcopy(DEFAULT_FILTERS)
 
@@ -673,6 +777,43 @@ def main():
     tab_filter, tab_stratify = st.tabs(["2. Filter Tool", "3. Stratification Tool"])
 
     with tab_filter:
+       # ### INÍCIO DA SEÇÃO DE GERENCIAMENTO CONDICIONAL ###
+        with st.expander("📂 Manage Filter Sets"):
+            if st.session_state.get("authentication_status"):
+                username = st.session_state["username"]
+                saved_filter_names = get_saved_filter_names(username)
+                
+                if saved_filter_names:
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    with col1:
+                        selected_filter = st.selectbox("Load your saved filter set", saved_filter_names, index=None, placeholder="Select a filter to load or delete")
+                    with col2:
+                        if st.button("Load", use_container_width=True, disabled=not selected_filter):
+                            loaded = load_filters(username, selected_filter)
+                            if loaded:
+                                for rule in loaded: rule['id'] = str(uuid.uuid4())
+                                st.session_state.filter_rules = loaded
+                                st.rerun()
+                    with col3:
+                        if st.button("Delete", use_container_width=True, disabled=not selected_filter):
+                            delete_filter(username, selected_filter)
+                            st.rerun()
+                else:
+                    st.info("You have no saved filter sets yet.")
+
+                st.divider()
+                
+                col_save1, col_save2 = st.columns([2, 1])
+                with col_save1:
+                    new_name = st.text_input("Enter a name to save the current filter set", placeholder="Example: Monthly Report")
+                with col_save2:
+                    if st.button("Save Current Filters", use_container_width=True, disabled=not new_name):
+                        save_filters(username, new_name, st.session_state.filter_rules)
+            else:
+                st.info("Please log in or register to save and manage your personal filter sets.")
+                st.markdown("Use the **Login** and **Register** tabs in the sidebar 👤.")
+        # ### FIM DA SEÇÃO DE GERENCIAMENTO CONDICIONAL ###
+
         st.header("Exclusion Rules")
         draw_filter_rules(sex_column_values, column_options) # Passa as opções de coluna
         if st.button("Add New Filter Rule"):
