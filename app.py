@@ -10,9 +10,17 @@ import copy
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Optional
+import os
+import json
+import re
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Data Sift")
+
+# --- CRIAÇÃO DO DIRETÓRIO PARA SALVAR OS FILTROS ---
+# Garante que a pasta 'saved_filters' exista
+if not os.path.exists('saved_filters'):
+    os.makedirs('saved_filters')
 
 # --- CONSTANTES E DADOS ---
 GDPR_TERMS = """
@@ -518,6 +526,63 @@ def draw_stratum_rules():
                     st.warning("Cannot delete the last age range.")
         st.markdown("---")
 
+# --- FUNÇÕES DE GERENCIAMENTO DE FILTROS ---
+
+def sanitize_filename(name):
+    """Remove caracteres inválidos de um nome para usá-lo como nome de arquivo."""
+    name = re.sub(r'[^\w\s-]', '', name).strip()
+    name = re.sub(r'[-\s]+', '_', name)
+    return name
+
+def save_filters(name: str, rules: list):
+    """Salva a lista de regras de filtro em um arquivo JSON."""
+    filename = sanitize_filename(name)
+    if not filename:
+        st.error("O nome do filtro não pode estar vazio ou conter apenas caracteres inválidos.")
+        return
+    
+    filepath = os.path.join('saved_filters', f"{filename}.json")
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(rules, f, indent=4)
+        st.success(f"Filtro '{name}' salvo com sucesso!")
+    except Exception as e:
+        st.error(f"Erro ao salvar o filtro: {e}")
+
+def load_filters(name: str) -> list | None:
+    """Carrega uma lista de regras de filtro de um arquivo JSON."""
+    filename = sanitize_filename(name)
+    filepath = os.path.join('saved_filters', f"{filename}.json")
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        st.error(f"Arquivo de filtro '{name}' não encontrado.")
+        return None
+    except Exception as e:
+        st.error(f"Erro ao carregar o filtro: {e}")
+        return None
+
+def get_saved_filter_names() -> list:
+    """Retorna uma lista com os nomes dos filtros salvos."""
+    files = os.listdir('saved_filters')
+    # Extrai o nome do arquivo sem a extensão .json e substitui underscores por espaços
+    names = [os.path.splitext(f)[0].replace('_', ' ') for f in files if f.endswith('.json')]
+    return sorted(names)
+
+def delete_filter(name: str):
+    """Deleta um arquivo de filtro salvo."""
+    filename = sanitize_filename(name)
+    filepath = os.path.join('saved_filters', f"{filename}.json")
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            st.success(f"Filtro '{name}' deletado com sucesso!")
+        else:
+            st.warning("Filtro não encontrado para deleção.")
+    except Exception as e:
+        st.error(f"Erro ao deletar o filtro: {e}")
+
 def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
@@ -609,9 +674,7 @@ def main():
 
     with tab_filter:
         st.header("Exclusion Rules")
-        # ######### INÍCIO DA ALTERAÇÃO #########
         draw_filter_rules(sex_column_values, column_options) # Passa as opções de coluna
-        # ######### FIM DA ALTERAÇÃO #########
         if st.button("Add New Filter Rule"):
             st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''})
             st.rerun()
@@ -638,7 +701,47 @@ def main():
 
         if 'filtered_result' in st.session_state:
             st.download_button("Download Filtered Sheet", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True)
+        with st.expander("📂 Manage Filter Sets"):
+            saved_filter_names = get_saved_filter_names()
+            
+            # --- Seção de Carregar e Deletar ---
+            if saved_filter_names:
+                col1, col2, col3 = st.columns([2, 1, 1])
+                
+                with col1:
+                    selected_filter_to_load = st.selectbox(
+                        "Load a saved filter set", 
+                        options=saved_filter_names,
+                        index=None,
+                        placeholder="Select a filter set to load or delete"
+                    )
+                
+                with col2:
+                    if st.button("Load", use_container_width=True, disabled=not selected_filter_to_load):
+                        loaded_rules = load_filters(selected_filter_to_load)
+                        if loaded_rules:
+                            # Adiciona IDs únicos para as novas regras carregadas para evitar conflitos de key
+                            for rule in loaded_rules:
+                                rule['id'] = str(uuid.uuid4())
+                            st.session_state.filter_rules = loaded_rules
+                            st.rerun()
 
+                with col3:
+                    if st.button("Delete", use_container_width=True, disabled=not selected_filter_to_load):
+                        delete_filter(selected_filter_to_load)
+                        st.rerun()
+            else:
+                st.info("No filter sets saved yet. Use the section below to save the current rules.")
+
+            st.divider()
+
+            # --- Seção de Salvar ---
+            col_save1, col_save2 = st.columns([2, 1])
+            with col_save1:
+                new_filter_name = st.text_input("Enter a name to save the current filter set", placeholder="Example: Monthly Report Filters")
+            with col_save2:
+                if st.button("Save Current Filters", use_container_width=True, disabled=not new_filter_name):
+                    save_filters(new_filter_name, st.session_state.filter_rules)
     with tab_stratify:
         st.header("Stratification Options by Sex/Gender")
         
