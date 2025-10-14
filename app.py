@@ -588,24 +588,25 @@ def draw_stratum_rules():
 def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
-        st.title("Welcome to Data Sift!")
-        st.markdown("This program is designed to optimize your work with large volumes of data...")
-        st.divider()
-        st.header("Terms of Use and Data Protection Compliance")
-        st.markdown(GDPR_TERMS) 
-        accepted = st.checkbox("By checking this box, I confirm that the data provided is anonymized and contains no sensitive personal data.")
-        if st.button("Continue", disabled=not accepted):
-            st.session_state.lgpd_accepted = True
-            st.rerun()
+        # ... (código da tela de aceite de termos) ...
         return
 
-    # ### INÍCIO DA SEÇÃO DE AUTENTICAÇÃO ###
-    try:
-        with open('config.yaml') as file:
-            config = yaml.load(file, Loader=SafeLoader)
-    except FileNotFoundError:
-        st.error("`config.yaml` not found. Please create the configuration file.")
-        return
+    # ### INÍCIO DA SEÇÃO DE AUTENTICAÇÃO ATUALIZADA ###
+    # Tenta carregar as credenciais dos Secrets do Streamlit Cloud primeiro
+    if 'credentials' in st.secrets:
+        config = {
+            'credentials': dict(st.secrets['credentials']),
+            'cookie': dict(st.secrets['cookie']),
+            'preauthorized': dict(st.secrets['preauthorized'])
+        }
+    # Se não encontrar, carrega do arquivo local config.yaml (para desenvolvimento)
+    else:
+        try:
+            with open('config.yaml') as file:
+                config = yaml.load(file, Loader=SafeLoader)
+        except FileNotFoundError:
+            st.error("`config.yaml` not found. Please create it for local development or set secrets for deployment.")
+            return
 
     authenticator = stauth.Authenticate(
         config['credentials'],
