@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.4 - Correção de erro de codificação "invalid utf-8 sequence"
+# Versão 1.9.5 - Correção de erro de interface "removeChild" e estabilização de encoding
 import streamlit as st
 import pandas as pd
 import numpy as np
 import io
 import uuid
 import copy
-import polars as pl  # Adicionado para leitura eficiente de cabeçalhos
+import polars as pl
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Optional
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
@@ -145,7 +144,7 @@ class DataProcessor:
             else:
                 v1_num = float(str(val1).replace(',', '.'))
                 return self._build_single_mask(df[col], op1, v1_num)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, Exception):
             return pd.Series([False] * len(df), index=df.index)
 
     def _create_conditional_mask(self, df: pd.DataFrame, f: Dict, global_config: Dict) -> pd.Series:
@@ -182,43 +181,39 @@ class DataProcessor:
         
         uploaded_file.seek(0)
         try:
-            # Tenta UTF-8, se falhar vai para Latin-1
-            header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python', encoding='utf-8') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, nrows=0)
-        except UnicodeDecodeError:
-            uploaded_file.seek(0)
-            header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python', encoding='latin-1')
-        
+            # Detecta header e encoding
+            if uploaded_file.name.endswith('.csv'):
+                try:
+                    header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python', encoding='utf-8')
+                    enc = 'utf-8'
+                except UnicodeDecodeError:
+                    uploaded_file.seek(0)
+                    header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python', encoding='latin-1')
+                    enc = 'latin-1'
+            else:
+                header_df = pd.read_excel(uploaded_file, nrows=0)
+                enc = None
+        except Exception:
+            header_df = pd.DataFrame()
+            enc = 'latin-1'
+
         if not active_filters:
             progress_bar.progress(1.0, text="No active filters.")
             uploaded_file.seek(0)
-            try:
-                return pd.read_csv(uploaded_file, sep=";", engine='python', encoding='utf-8') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-            except UnicodeDecodeError:
-                uploaded_file.seek(0)
-                return pd.read_csv(uploaded_file, sep=";", engine='python', encoding='latin-1')
+            return pd.read_csv(uploaded_file, sep=";", engine='python', encoding=enc) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
 
         processed_chunks = []
         uploaded_file.seek(0)
         
         if uploaded_file.name.endswith('.csv'):
-            try:
-                reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding='utf-8')
-                # Forçamos a leitura do primeiro chunk para testar o encoding
-                first_chunk = next(reader)
-                reader = pd.concat([pd.DataFrame(first_chunk), reader]) # Reconstroi o gerador simplificado
-                reader = [first_chunk] # Na verdade, para simplificar o erro de chunking com try/except, lemos denovo abaixo
-                uploaded_file.seek(0)
-                reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding='utf-8')
-            except (UnicodeDecodeError, StopIteration):
-                uploaded_file.seek(0)
-                reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding='latin-1')
+            reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding=enc)
         else:
             full_df = pd.read_excel(uploaded_file)
             reader = [full_df[i:i + CHUNK_SIZE] for i in range(0, len(full_df), CHUNK_SIZE)]
 
         for idx, chunk in enumerate(reader):
             temp_chunk = chunk.copy()
-            progress_bar.progress(0.5, text=f"Processing block {idx+1}...")
+            progress_bar.progress(0.1, text=f"Processing block {idx+1}...")
 
             for f_config in active_filters:
                 col_config_str = f_config.get('p_col', '')
@@ -250,18 +245,23 @@ class DataProcessor:
     def apply_stratification(self, uploaded_file, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
         uploaded_file.seek(0)
         try:
-            df = pd.read_csv(uploaded_file, sep=";", engine='python', encoding='utf-8') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-        except UnicodeDecodeError:
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, sep=";", engine='python', encoding='latin-1')
+            if uploaded_file.name.endswith('.csv'):
+                try:
+                    df = pd.read_csv(uploaded_file, sep=";", engine='python', encoding='utf-8')
+                except UnicodeDecodeError:
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, sep=";", engine='python', encoding='latin-1')
+            else:
+                df = pd.read_excel(uploaded_file)
+        except Exception as e:
+            st.error(f"Error loading file for stratification: {e}")
+            return {}
         
         col_idade = global_config.get('coluna_idade')
         col_sexo = global_config.get('coluna_sexo')
 
-        if not (col_idade and col_idade in df.columns):
-            st.error(f"Age column '{col_idade}' not found."); return {}
-        if not (col_sexo and col_sexo in df.columns):
-            st.error(f"Sex/gender column '{col_sexo}' not found."); return {}
+        if not (col_idade and col_idade in df.columns): return {}
+        if not (col_sexo and col_sexo in df.columns): return {}
 
         df[col_idade] = self._safe_to_numeric(df[col_idade])
         age_strata = strata_config.get('ages', [])
@@ -298,7 +298,7 @@ class DataProcessor:
                         val2 = float(str(age_rule['val2']).replace(',', '.'))
                         age_mask &= eval(f"df['{col_idade}'] {op2} {val2}")
                     combined_mask &= age_mask
-                except (ValueError, TypeError): continue
+                except Exception: continue
 
             if sex_rule:
                 sex_val = sex_rule.get('value')
@@ -353,19 +353,16 @@ def get_column_names(uploaded_file):
         uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'):
             try:
-                # Tenta ler o cabeçalho em UTF-8
-                df_schema = pl.read_csv(uploaded_file, n_rows=0, ignore_errors=True, separator=';', encoding='utf8')
+                df_schema = pl.read_csv(uploaded_file, n_rows=0, separator=';', encoding='utf8')
                 return df_schema.columns
-            except:
-                # Se falhar, tenta Latin-1
+            except Exception:
                 uploaded_file.seek(0)
-                df_schema = pl.read_csv(uploaded_file, n_rows=0, ignore_errors=True, separator=';', encoding='latin1')
+                df_schema = pl.read_csv(uploaded_file, n_rows=0, separator=';', encoding='latin1')
                 return df_schema.columns
         else:
             df_header = pd.read_excel(uploaded_file, nrows=0)
             return df_header.columns.tolist()
-    except Exception as e:
-        st.error(f"Error reading columns: {e}")
+    except Exception:
         return []
 
 @st.cache_data
@@ -376,13 +373,13 @@ def get_unique_values(uploaded_file, column_name):
         if uploaded_file.name.endswith('.csv'):
             try:
                 df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=";", engine='python', encoding='utf-8')
-            except UnicodeDecodeError:
+            except Exception:
                 uploaded_file.seek(0)
                 df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=";", engine='python', encoding='latin-1')
         else:
             df_col = pd.read_excel(uploaded_file, usecols=[column_name])
-        return [""] + list(df_col[column_name].dropna().unique())
-    except:
+        return [""] + [str(x) for x in df_col[column_name].dropna().unique()]
+    except Exception:
         return []
 
 def to_excel(df):
@@ -403,14 +400,10 @@ def handle_select_all():
 
 def draw_filter_rules(sex_column_values, column_options): 
     st.markdown("""<style>
-        .stButton>button { padding: 0.25rem 0.3rem; font-size: 0.8rem; white-space: nowrap; }
-        div[data-testid="stTextInput"] input, div[data-testid="stSelectbox"] div[data-baseweb="select"] {
-            border: 1px solid rgba(255, 75, 75, 0.15) !important;
-            border-radius: 0.25rem;
-        }
+        .stButton>button { padding: 0.25rem 0.3rem; font-size: 0.8rem; }
     </style>""", unsafe_allow_html=True)
     
-    header_cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium")
+    header_cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="small")
     all_checked = all(rule.get('p_check', True) for rule in st.session_state.filter_rules) if st.session_state.filter_rules else False
 
     header_cols[0].checkbox("All", value=all_checked, key='select_all_master_checkbox', on_change=handle_select_all, label_visibility="collapsed")
@@ -420,65 +413,66 @@ def draw_filter_rules(sex_column_values, column_options):
     header_cols[5].markdown("**Compound Logic**")
     header_cols[6].markdown("**Condition**")
     header_cols[7].markdown("**Actions**")
-    st.markdown("<hr style='margin-top: -0.5rem; margin-bottom: 0.5rem;'>", unsafe_allow_html=True)
+    st.markdown("---")
 
     ops_main = ["", ">", "<", "=", "Not equal to", "≥", "≤"]
     ops_age = ["", ">", "<", "≥", "≤", "="]
     ops_central_logic = ["AND", "OR", "BETWEEN"]
 
     for i, rule in enumerate(st.session_state.filter_rules):
+        rule_id = rule['id']
         with st.container():
-            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
-            rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
-            
-            rule['p_col'] = cols[1].selectbox("Col", options=column_options, index=column_options.index(rule['p_col']) if rule['p_col'] in column_options else None, key=f"p_col_{rule['id']}", label_visibility="collapsed")
-            rule['p_op1'] = cols[2].selectbox("Op1", ops_main, index=ops_main.index(rule.get('p_op1', '=')) if rule.get('p_op1') in ops_main else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
-            rule['p_val1'] = cols[3].text_input("V1", value=rule.get('p_val1', ''), key=f"p_val1_{rule['id']}", label_visibility="collapsed")
-            rule['p_expand'] = cols[4].checkbox("+", value=rule.get('p_expand', False), key=f"p_expand_{rule['id']}", label_visibility="collapsed")
+            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="small") 
+            rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule_id}", label_visibility="collapsed")
+            rule['p_col'] = cols[1].selectbox("Col", options=column_options, index=column_options.index(rule['p_col']) if rule['p_col'] in column_options else None, key=f"p_col_{rule_id}", label_visibility="collapsed")
+            rule['p_op1'] = cols[2].selectbox("Op1", ops_main, index=ops_main.index(rule.get('p_op1', '=')) if rule.get('p_op1') in ops_main else 0, key=f"p_op1_{rule_id}", label_visibility="collapsed")
+            rule['p_val1'] = cols[3].text_input("V1", value=rule.get('p_val1', ''), key=f"p_val1_{rule_id}", label_visibility="collapsed")
+            rule['p_expand'] = cols[4].checkbox("+", value=rule.get('p_expand', False), key=f"p_expand_{rule_id}", label_visibility="collapsed")
             
             with cols[5]:
                 if rule['p_expand']:
                     exp_cols = st.columns([3, 2, 2])
-                    rule['p_op_central'] = exp_cols[0].selectbox("Log", ops_central_logic, index=ops_central_logic.index(rule.get('p_op_central', 'OR')) if rule.get('p_op_central') in ops_central_logic else 0, key=f"p_op_central_{rule['id']}", label_visibility="collapsed")
-                    rule['p_op2'] = exp_cols[1].selectbox("Op2", ops_main, index=ops_main.index(rule.get('p_op2', '>')) if rule.get('p_op2') in ops_main else 0, key=f"p_op2_{rule['id']}", label_visibility="collapsed")
-                    rule['p_val2'] = exp_cols[2].text_input("V2", value=rule.get('p_val2', ''), key=f"p_val2_{rule['id']}", label_visibility="collapsed")
+                    rule['p_op_central'] = exp_cols[0].selectbox("Log", ops_central_logic, index=ops_central_logic.index(rule.get('p_op_central', 'OR')) if rule.get('p_op_central') in ops_central_logic else 0, key=f"p_op_central_{rule_id}", label_visibility="collapsed")
+                    rule['p_op2'] = exp_cols[1].selectbox("Op2", ops_main, index=ops_main.index(rule.get('p_op2', '>')) if rule.get('p_op2') in ops_main else 0, key=f"p_op2_{rule_id}", label_visibility="collapsed")
+                    rule['p_val2'] = exp_cols[2].text_input("V2", value=rule.get('p_val2', ''), key=f"p_val2_{rule_id}", label_visibility="collapsed")
 
-            rule['c_check'] = cols[6].checkbox("Cond", value=rule.get('c_check', False), key=f"c_check_{rule['id']}")
+            rule['c_check'] = cols[6].checkbox("Cond", value=rule.get('c_check', False), key=f"c_check_{rule_id}")
             
             act_cols = cols[7].columns(2)
-            if act_cols[0].button("Clone", key=f"clone_{rule['id']}"):
+            if act_cols[0].button("Clone", key=f"clone_{rule_id}"):
                 new_r = copy.deepcopy(rule); new_r['id'] = str(uuid.uuid4())
                 st.session_state.filter_rules.insert(i + 1, new_r); st.rerun()
-            if act_cols[1].button("X", key=f"del_{rule['id']}"):
+            if act_cols[1].button("X", key=f"del_{rule_id}"):
                 st.session_state.filter_rules.pop(i); st.rerun()
 
             if rule['c_check']:
                 cond_cols = st.columns([0.55, 0.5, 1, 3, 1, 3])
-                rule['c_idade_check'] = cond_cols[2].checkbox("Age", value=rule.get('c_idade_check', False), key=f"c_idade_check_{rule['id']}")
+                rule['c_idade_check'] = cond_cols[2].checkbox("Age", value=rule.get('c_idade_check', False), key=f"c_idade_check_{rule_id}")
                 if rule['c_idade_check']:
                     age_c = cond_cols[3].columns([2, 2, 1, 2, 2])
-                    rule['c_idade_op1'] = age_c[0].selectbox("AOp1", ops_age, index=ops_age.index(rule.get('c_idade_op1','>')) if rule.get('c_idade_op1') in ops_age else 0, key=f"c_idade_op1_{rule['id']}", label_visibility="collapsed")
-                    rule['c_idade_val1'] = age_c[1].text_input("AV1", value=rule.get('c_idade_val1',''), key=f"c_idade_val1_{rule['id']}", label_visibility="collapsed")
+                    rule['c_idade_op1'] = age_c[0].selectbox("AOp1", ops_age, index=ops_age.index(rule.get('c_idade_op1','>')) if rule.get('c_idade_op1') in ops_age else 0, key=f"c_idade_op1_{rule_id}", label_visibility="collapsed")
+                    rule['c_idade_val1'] = age_c[1].text_input("AV1", value=rule.get('c_idade_val1',''), key=f"c_idade_val1_{rule_id}", label_visibility="collapsed")
                     age_c[2].write("AND")
-                    rule['c_idade_op2'] = age_c[3].selectbox("AOp2", ops_age, index=ops_age.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_age else 0, key=f"c_idade_op2_{rule['id']}", label_visibility="collapsed")
-                    rule['c_idade_val2'] = age_c[4].text_input("AV2", value=rule.get('c_idade_val2',''), key=f"c_idade_val2_{rule['id']}", label_visibility="collapsed")
+                    rule['c_idade_op2'] = age_c[3].selectbox("AOp2", ops_age, index=ops_age.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_age else 0, key=f"c_idade_op2_{rule_id}", label_visibility="collapsed")
+                    rule['c_idade_val2'] = age_c[4].text_input("AV2", value=rule.get('c_idade_val2',''), key=f"c_idade_val2_{rule_id}", label_visibility="collapsed")
                 
-                rule['c_sexo_check'] = cond_cols[4].checkbox("Sex", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule['id']}")
+                rule['c_sexo_check'] = cond_cols[4].checkbox("Sex", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule_id}")
                 if rule['c_sexo_check']:
-                    rule['c_sexo_val'] = cond_cols[5].selectbox("SVal", options=sex_column_values, index=sex_column_values.index(rule['c_sexo_val']) if rule['c_sexo_val'] in sex_column_values else None, key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
+                    rule['c_sexo_val'] = cond_cols[5].selectbox("SVal", options=sex_column_values, index=sex_column_values.index(rule['c_sexo_val']) if rule['c_sexo_val'] in sex_column_values else None, key=f"c_sexo_val_{rule_id}", label_visibility="collapsed")
         st.markdown("---")
 
 def draw_stratum_rules():
     ops_stratum = ["", ">", "<", "≥", "≤"]
     for i, stratum_rule in enumerate(st.session_state.stratum_rules):
+        rule_id = stratum_rule['id']
         cols = st.columns([2, 1, 1, 0.5, 1, 1, 1])
         cols[0].write(f"**Age Range {i+1}:**")
-        stratum_rule['op1'] = cols[1].selectbox("SOp1", ops_stratum, index=ops_stratum.index(stratum_rule.get('op1', '')) if stratum_rule.get('op1') in ops_stratum else 0, key=f"s_op1_{stratum_rule['id']}", label_visibility="collapsed")
-        stratum_rule['val1'] = cols[2].text_input("SV1", value=stratum_rule.get('val1', ''), key=f"s_val1_{stratum_rule['id']}", label_visibility="collapsed")
+        stratum_rule['op1'] = cols[1].selectbox("SOp1", ops_stratum, index=ops_stratum.index(stratum_rule.get('op1', '')) if stratum_rule.get('op1') in ops_stratum else 0, key=f"s_op1_{rule_id}", label_visibility="collapsed")
+        stratum_rule['val1'] = cols[2].text_input("SV1", value=stratum_rule.get('val1', ''), key=f"s_val1_{rule_id}", label_visibility="collapsed")
         cols[3].write("AND")
-        stratum_rule['op2'] = cols[4].selectbox("SOp2", ops_stratum, index=ops_stratum.index(stratum_rule.get('op2', '')) if stratum_rule.get('op2') in ops_stratum else 0, key=f"s_op2_{stratum_rule['id']}", label_visibility="collapsed")
-        stratum_rule['val2'] = cols[5].text_input("SV2", value=stratum_rule.get('val2', ''), key=f"s_val2_{stratum_rule['id']}", label_visibility="collapsed")
-        if cols[6].button("X", key=f"del_s_{stratum_rule['id']}"):
+        stratum_rule['op2'] = cols[4].selectbox("SOp2", ops_stratum, index=ops_stratum.index(stratum_rule.get('op2', '')) if stratum_rule.get('op2') in ops_stratum else 0, key=f"s_op2_{rule_id}", label_visibility="collapsed")
+        stratum_rule['val2'] = cols[5].text_input("SV2", value=stratum_rule.get('val2', ''), key=f"s_val2_{rule_id}", label_visibility="collapsed")
+        if cols[6].button("X", key=f"del_s_{rule_id}"):
             if len(st.session_state.stratum_rules) > 1: st.session_state.stratum_rules.pop(i); st.rerun()
         st.markdown("---")
 
@@ -502,7 +496,6 @@ def main():
 
     with st.expander("1. Global Settings", expanded=True):
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls'])
-        
         column_options = get_column_names(uploaded_file)
         
         c1, c2, c3 = st.columns(3)
@@ -510,16 +503,10 @@ def main():
         col_sexo = c2.selectbox("Sex/Gender Column", options=column_options, key="col_sexo", index=None)
         c3.selectbox("Output Format", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
 
-        st.session_state.sex_column_is_valid = True
-        st.session_state.age_column_is_valid = True
         sex_column_values = []
-
         if uploaded_file and col_sexo:
             sex_column_values = get_unique_values(uploaded_file, col_sexo)
-            if len(sex_column_values) > 11: # +1 do vazio
-                st.warning("Too many unique values in Sex column."); st.session_state.sex_column_is_valid = False
 
-    is_ready = st.session_state.age_column_is_valid and st.session_state.sex_column_is_valid
     tab_filter, tab_stratify = st.tabs(["2. Filter Tool", "3. Stratification Tool"])
 
     with tab_filter:
@@ -528,19 +515,23 @@ def main():
             st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '=', 'p_val1': '', 'p_expand': False})
             st.rerun()
         
-        if st.button("Generate Filtered Sheet", type="primary", use_container_width=True, disabled=not (uploaded_file and is_ready)):
-            with st.spinner("Processing in chunks..."):
+        filter_btn_placeholder = st.empty()
+        download_placeholder = st.container()
+
+        if filter_btn_placeholder.button("Generate Filtered Sheet", type="primary", use_container_width=True, disabled=not uploaded_file):
+            with st.spinner("Processing..."):
                 prog = st.progress(0)
                 processor = get_data_processor()
                 filtered_df = processor.apply_filters(uploaded_file, st.session_state.filter_rules, {"coluna_idade": col_idade, "coluna_sexo": col_sexo}, prog)
                 
                 if not filtered_df.empty:
-                    st.success(f"Done! {len(filtered_df)} rows.")
                     is_ex = "Excel" in st.session_state.output_format
                     st.session_state.filtered_result = (to_excel(filtered_df) if is_ex else to_csv(filtered_df), f"Filtered_{datetime.now().strftime('%H%M%S')}.{'xlsx' if is_ex else 'csv'}")
-        
+                    st.success(f"Generated {len(filtered_df)} rows.")
+
         if 'filtered_result' in st.session_state:
-            st.download_button("Download Result", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True)
+            with download_placeholder:
+                st.download_button("Download Result", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True, key="main_download")
 
     with tab_stratify:
         if sex_column_values:
@@ -548,19 +539,20 @@ def main():
                 st.session_state.strat_gender_selection = {v: True for v in sex_column_values if v}
             cols = st.columns(5)
             for i, g in enumerate([v for v in sex_column_values if v]):
-                st.session_state.strat_gender_selection[g] = cols[i % 5].checkbox(str(g), value=st.session_state.strat_gender_selection.get(g, True))
+                st.session_state.strat_gender_selection[g] = cols[i % 5].checkbox(str(g), value=st.session_state.strat_gender_selection.get(g, True), key=f"strat_sex_{g}")
 
         draw_stratum_rules()
         if st.button("Add Age Range"):
             st.session_state.stratum_rules.append({'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}); st.rerun()
         
-        if st.button("Generate Stratified Sheets", type="primary", use_container_width=True, disabled=not (uploaded_file and is_ready)):
-            st.session_state.confirm_stratify = True; st.rerun()
+        if st.button("Generate Stratified Sheets", type="primary", use_container_width=True, disabled=not uploaded_file):
+            st.session_state.confirm_stratify = True
+            st.rerun()
 
         if st.session_state.get('confirm_stratify'):
             st.warning("Confirm stratification?")
             c1, c2 = st.columns(2)
-            if c1.button("Yes"):
+            if c1.button("Confirm"):
                 with st.spinner("Processing..."):
                     prog = st.progress(0)
                     processor = get_data_processor()
@@ -568,13 +560,17 @@ def main():
                     sex_rules = [{'value': g} for g, sel in st.session_state.strat_gender_selection.items() if sel]
                     res = processor.apply_stratification(uploaded_file, {'ages': age_rules, 'sexes': sex_rules}, {"coluna_idade": col_idade, "coluna_sexo": col_sexo}, prog)
                     st.session_state.stratified_results = res
-                st.session_state.confirm_stratify = False; st.rerun()
-            if c2.button("No"): st.session_state.confirm_stratify = False; st.rerun()
+                st.session_state.confirm_stratify = False
+                st.rerun()
+            if c2.button("Cancel"):
+                st.session_state.confirm_stratify = False
+                st.rerun()
 
         if st.session_state.get('stratified_results'):
-            for fn, ddf in st.session_state.stratified_results.items():
-                is_ex = "Excel" in st.session_state.output_format
-                st.download_button(f"Download {fn}", data=to_excel(ddf) if is_ex else to_csv(ddf), file_name=f"{fn}.{'xlsx' if is_ex else 'csv'}")
+            with st.container():
+                for fn, ddf in st.session_state.stratified_results.items():
+                    is_ex = "Excel" in st.session_state.output_format
+                    st.download_button(f"Download {fn}", data=to_excel(ddf) if is_ex else to_csv(ddf), file_name=f"{fn}.{'xlsx' if is_ex else 'csv'}", key=f"dl_{fn}")
 
 if __name__ == "__main__":
     main()
