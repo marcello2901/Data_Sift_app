@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.5 - Correção de erro de interface "removeChild" e estabilização de encoding
+# Versão 1.9.6 - Otimização para arquivos grandes e detecção de separador
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -180,33 +180,19 @@ class DataProcessor:
         active_filters = [f for f in filters_config if f['p_check']]
         
         uploaded_file.seek(0)
-        try:
-            # Detecta header e encoding
-            if uploaded_file.name.endswith('.csv'):
-                try:
-                    header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python', encoding='utf-8')
-                    enc = 'utf-8'
-                except UnicodeDecodeError:
-                    uploaded_file.seek(0)
-                    header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python', encoding='latin-1')
-                    enc = 'latin-1'
-            else:
-                header_df = pd.read_excel(uploaded_file, nrows=0)
-                enc = None
-        except Exception:
-            header_df = pd.DataFrame()
-            enc = 'latin-1'
+        enc = st.session_state.get('detected_encoding', 'utf-8')
+        sep = st.session_state.get('detected_separator', ';')
 
         if not active_filters:
             progress_bar.progress(1.0, text="No active filters.")
             uploaded_file.seek(0)
-            return pd.read_csv(uploaded_file, sep=";", engine='python', encoding=enc) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            return pd.read_csv(uploaded_file, sep=sep, engine='python', encoding=enc) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
 
         processed_chunks = []
         uploaded_file.seek(0)
         
         if uploaded_file.name.endswith('.csv'):
-            reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding=enc)
+            reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=sep, engine='python', decimal=',', encoding=enc)
         else:
             full_df = pd.read_excel(uploaded_file)
             reader = [full_df[i:i + CHUNK_SIZE] for i in range(0, len(full_df), CHUNK_SIZE)]
@@ -240,17 +226,15 @@ class DataProcessor:
             processed_chunks.append(temp_chunk)
 
         progress_bar.progress(1.0, text="Filtering complete!")
-        return pd.concat(processed_chunks, ignore_index=True) if processed_chunks else pd.DataFrame(columns=header_df.columns)
+        return pd.concat(processed_chunks, ignore_index=True) if processed_chunks else pd.DataFrame()
 
     def apply_stratification(self, uploaded_file, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
         uploaded_file.seek(0)
+        enc = st.session_state.get('detected_encoding', 'utf-8')
+        sep = st.session_state.get('detected_separator', ';')
         try:
             if uploaded_file.name.endswith('.csv'):
-                try:
-                    df = pd.read_csv(uploaded_file, sep=";", engine='python', encoding='utf-8')
-                except UnicodeDecodeError:
-                    uploaded_file.seek(0)
-                    df = pd.read_csv(uploaded_file, sep=";", engine='python', encoding='latin-1')
+                df = pd.read_csv(uploaded_file, sep=sep, engine='python', encoding=enc)
             else:
                 df = pd.read_excel(uploaded_file)
         except Exception as e:
@@ -346,36 +330,42 @@ class DataProcessor:
 
 # --- FUNÇÕES AUXILIARES ---
 
-@st.cache_data
-def get_column_names(uploaded_file):
+def detect_and_get_columns(uploaded_file):
     if uploaded_file is None: return []
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'):
-            try:
-                df_schema = pl.read_csv(uploaded_file, n_rows=0, separator=';', encoding='utf8')
-                return df_schema.columns
-            except Exception:
-                uploaded_file.seek(0)
-                df_schema = pl.read_csv(uploaded_file, n_rows=0, separator=';', encoding='latin1')
-                return df_schema.columns
+            # Tenta descobrir separador e encoding
+            for encoding in ['utf8', 'latin1']:
+                for separator in [';', ',']:
+                    try:
+                        uploaded_file.seek(0)
+                        df_schema = pl.read_csv(uploaded_file, n_rows=1, separator=separator, encoding=encoding)
+                        if len(df_schema.columns) > 1:
+                            st.session_state.detected_encoding = encoding
+                            st.session_state.detected_separator = separator
+                            return df_schema.columns
+                    except Exception:
+                        continue
+            # Se nada funcionar, tenta o polars genérico
+            uploaded_file.seek(0)
+            return pl.read_csv(uploaded_file, n_rows=1).columns
         else:
             df_header = pd.read_excel(uploaded_file, nrows=0)
             return df_header.columns.tolist()
-    except Exception:
+    except Exception as e:
+        st.error(f"Error detecting columns: {e}")
         return []
 
 @st.cache_data
 def get_unique_values(uploaded_file, column_name):
     if not uploaded_file or not column_name: return []
+    enc = st.session_state.get('detected_encoding', 'utf-8')
+    sep = st.session_state.get('detected_separator', ';')
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'):
-            try:
-                df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=";", engine='python', encoding='utf-8')
-            except Exception:
-                uploaded_file.seek(0)
-                df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=";", engine='python', encoding='latin-1')
+            df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=sep, engine='python', encoding=enc)
         else:
             df_col = pd.read_excel(uploaded_file, usecols=[column_name])
         return [""] + [str(x) for x in df_col[column_name].dropna().unique()]
@@ -487,6 +477,7 @@ def main():
 
     if 'filter_rules' not in st.session_state: st.session_state.filter_rules = copy.deepcopy(DEFAULT_FILTERS)
     if 'stratum_rules' not in st.session_state: st.session_state.stratum_rules = [{'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}]
+    if 'column_options' not in st.session_state: st.session_state.column_options = []
     
     with st.sidebar:
         topic = st.selectbox("Manual", list(MANUAL_CONTENT.keys()))
@@ -496,7 +487,14 @@ def main():
 
     with st.expander("1. Global Settings", expanded=True):
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls'])
-        column_options = get_column_names(uploaded_file)
+        
+        # Botão para forçar leitura de colunas em arquivos pesados
+        if uploaded_file and (not st.session_state.column_options):
+            if st.button("Refresh Column Names (Large File Detection)"):
+                st.session_state.column_options = detect_and_get_columns(uploaded_file)
+                st.rerun()
+        
+        column_options = st.session_state.column_options
         
         c1, c2, c3 = st.columns(3)
         col_idade = c1.selectbox("Age Column", options=column_options, key="col_idade", index=None)
@@ -504,7 +502,7 @@ def main():
         c3.selectbox("Output Format", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
 
         sex_column_values = []
-        if uploaded_file and col_sexo:
+        if uploaded_file and col_sexo and column_options:
             sex_column_values = get_unique_values(uploaded_file, col_sexo)
 
     tab_filter, tab_stratify = st.tabs(["2. Filter Tool", "3. Stratification Tool"])
@@ -516,10 +514,8 @@ def main():
             st.rerun()
         
         filter_btn_placeholder = st.empty()
-        download_placeholder = st.container()
-
         if filter_btn_placeholder.button("Generate Filtered Sheet", type="primary", use_container_width=True, disabled=not uploaded_file):
-            with st.spinner("Processing..."):
+            with st.spinner("Processing Large Dataset..."):
                 prog = st.progress(0)
                 processor = get_data_processor()
                 filtered_df = processor.apply_filters(uploaded_file, st.session_state.filter_rules, {"coluna_idade": col_idade, "coluna_sexo": col_sexo}, prog)
@@ -530,8 +526,7 @@ def main():
                     st.success(f"Generated {len(filtered_df)} rows.")
 
         if 'filtered_result' in st.session_state:
-            with download_placeholder:
-                st.download_button("Download Result", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True, key="main_download")
+            st.download_button("Download Result", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True, key="main_download")
 
     with tab_stratify:
         if sex_column_values:
@@ -567,10 +562,9 @@ def main():
                 st.rerun()
 
         if st.session_state.get('stratified_results'):
-            with st.container():
-                for fn, ddf in st.session_state.stratified_results.items():
-                    is_ex = "Excel" in st.session_state.output_format
-                    st.download_button(f"Download {fn}", data=to_excel(ddf) if is_ex else to_csv(ddf), file_name=f"{fn}.{'xlsx' if is_ex else 'csv'}", key=f"dl_{fn}")
+            for fn, ddf in st.session_state.stratified_results.items():
+                is_ex = "Excel" in st.session_state.output_format
+                st.download_button(f"Download {fn}", data=to_excel(ddf) if is_ex else to_csv(ddf), file_name=f"{fn}.{'xlsx' if is_ex else 'csv'}", key=f"dl_{fn}")
 
 if __name__ == "__main__":
     main()
