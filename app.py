@@ -1,296 +1,239 @@
 # -*- coding: utf-8 -*-
 
-# Data Sift - Versão 2.0 (Otimizada para Performance e Memória)
+# Data Sift - Versão 3.0 (Enterprise/High-Performance Edition)
 import streamlit as st
 import pandas as pd
 import numpy as np
 import io
 import uuid
 import copy
+import gc
 from datetime import datetime
-from zoneinfo import ZoneInfo
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(layout="wide", page_title="Data Sift")
+st.set_page_config(layout="wide", page_title="Data Sift | Laboratory Data Filter")
 
-# --- CONSTANTES E DADOS ---
+# --- CONTEÚDO ESTÁTICO (DISCLAIMER E MANUAL) ---
 GDPR_TERMS = """
-This tool is designed to process and filter data from spreadsheets. The files you upload may contain sensitive personal data (such as full name, date of birth, national ID numbers, health information, etc.), the processing of which is regulated by data protection laws like the General Data Protection Regulation (GDPR or LGPD).
+### Data Privacy & Compliance (LGPD / GDPR)
 
-It is your sole responsibility to ensure that all data used in this tool complies with applicable data protection regulations. We strongly recommend that you only use previously anonymized data to protect the privacy of data subjects.
+This tool is designed to process and filter data from spreadsheets. The files you upload may contain sensitive personal data (such as full name, date of birth, health information, etc.), the processing of which is regulated by data protection laws like the **General Data Protection Regulation (GDPR)** and the **Lei Geral de Proteção de Dados (LGPD)**.
 
-The responsibility for the nature of the processed data is exclusively yours.
+**Important Notices:**
+1. **Local Processing:** Data is processed in the application's temporary memory and is not permanently stored on our servers.
+2. **Your Responsibility:** It is your sole responsibility to ensure that all data used in this tool complies with applicable regulations. We strongly recommend using **anonymized data**.
+3. **Liability:** The responsibility for the nature and legality of the processed data is exclusively yours.
 
-To proceed, you must confirm that the data to be used has been properly handled and anonymized.
+*By proceeding, you confirm that the data has been properly handled and you accept responsibility for its processing.*
 """
 
 MANUAL_CONTENT = {
     "Introduction": """**Welcome to Data Sift!**
-This program is a spreadsheet filter tool designed to optimize your work with large volumes of data by offering two main functionalities:
-1. **Filtering:** To clean your database by removing rows that are not of interest.
-2. **Stratification:** To divide your database into specific subgroups.""",
+This program is a professional spreadsheet filter tool designed to handle large volumes of laboratory data (up to 500MB) by offering two main functionalities:
+1. **Filtering (Exclusion):** Clean your database by removing rows based on clinical or technical criteria.
+2. **Stratification:** Divide your database into specific subgroups (Age/Sex).""",
     "1. Global Settings": """**1. Global Settings**
-Essencial para carregar o arquivo e definir colunas de referência (Idade/Sexo).""",
+Upload your file (CSV recommended for files >100MB) and define which columns represent **Age** and **Sex** for conditional rules.""",
     "2. Filter Tool": """**2. Filter Tool**
-O objetivo é remover linhas. Regras ativas indicam o que deve ser **excluído**.""",
-    "3. Stratification Tool": """**3. Stratification Tool**
-Divide a planilha em múltiplos arquivos baseados em estratos de idade e sexo."""
+The goal is to remove rows. Rules active here define what will be **EXCLUDED** from the final file. 
+*Example: If you set 'Ferritin < 15', all rows with Ferritin lower than 15 will be deleted.*""",
 }
 
 DEFAULT_FILTERS = [
     {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'CAPA.IST', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '50', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
     {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ferritina.FERRI', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '600', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
-    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ultra-PCR.ULTRAPCR', 'p_op1': '>', 'p_val1': '5', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '<', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''},
 ]
 
-# --- MOTOR DE PROCESSAMENTO (BACKEND OTIMIZADO) ---
-
-@st.cache_resource
-def get_data_processor():
-    return DataProcessor()
+# --- MOTOR DE PROCESSAMENTO (CHUNKING LOGIC) ---
 
 class DataProcessor:
-    OPERATOR_MAP = {'=': '==', 'Não é igual a': '!=', '≥': '>=', '≤': '<=', 'is equal to': '==', 'Not equal to': '!='}
-
     def _safe_to_numeric(self, series: pd.Series) -> pd.Series:
         if pd.api.types.is_numeric_dtype(series): return series
         return pd.to_numeric(series.astype(str).str.replace(',', '.', regex=False), errors='coerce')
 
     def _apply_comparison(self, s: pd.Series, op: str, val: float) -> pd.Series:
-        if op in ['==', 'is equal to']: return s == val
+        if op in ['==', '=', 'is equal to']: return s == val
         if op in ['!=', 'Not equal to']: return s != val
         if op == '>': return s > val
         if op == '<': return s < val
-        if op == '>=' or op == '≥': return s >= val
-        if op == '<=' or op == '≤': return s <= val
+        if op in ['>=', '≥']: return s >= val
+        if op in ['<=', '≤']: return s <= val
         return pd.Series([False] * len(s), index=s.index)
 
-    def _create_main_mask(self, df: pd.DataFrame, f: Dict, col: str) -> pd.Series:
-        op1_ui, val1 = f.get('p_op1'), f.get('p_val1')
-        
-        # Caso especial: Vazio
-        if val1 and val1.lower() == 'empty':
-            is_empty = df[col].isna() | (df[col].astype(str).str.strip() == '')
-            return is_empty if op1_ui in ['=', 'is equal to'] else ~is_empty
+    def _create_mask(self, df: pd.DataFrame, f: Dict, global_config: Dict) -> pd.Series:
+        col = f.get('p_col')
+        if not col or col not in df.columns: return pd.Series([False] * len(df), index=df.index)
 
         try:
             s_num = self._safe_to_numeric(df[col])
-            v1 = float(str(val1).replace(',', '.'))
-
-            if f.get('p_expand'):
-                logic = f.get('p_op_central', 'OR').upper()
-                v2 = float(str(f.get('p_val2')).replace(',', '.'))
-                op2 = f.get('p_op2')
-
-                if logic == 'BETWEEN':
-                    low, high = sorted((v1, v2))
-                    return s_num.between(low, high)
-                
-                m1 = self._apply_comparison(s_num, op1_ui, v1)
-                m2 = self._apply_comparison(s_num, op2, v2)
-                return (m1 & m2) if logic == 'AND' else (m1 | m2)
+            v1 = float(str(f.get('p_val1')).replace(',', '.'))
             
-            return self._apply_comparison(s_num, op1_ui, v1)
+            if f.get('p_expand'):
+                v2 = float(str(f.get('p_val2')).replace(',', '.'))
+                logic = f.get('p_op_central', 'OR').upper()
+                if logic == 'BETWEEN':
+                    m_main = s_num.between(min(v1, v2), max(v1, v2))
+                else:
+                    m1 = self._apply_comparison(s_num, f['p_op1'], v1)
+                    m2 = self._apply_comparison(s_num, f['p_op2'], v2)
+                    m_main = (m1 & m2) if logic == 'AND' else (m1 | m2)
+            else:
+                m_main = self._apply_comparison(s_num, f['p_op1'], v1)
         except:
-            return pd.Series([False] * len(df), index=df.index)
+            m_main = pd.Series([False] * len(df), index=df.index)
 
-    def _create_conditional_mask(self, df: pd.DataFrame, f: Dict, global_config: Dict) -> pd.Series:
-        if not f.get('c_check'): return pd.Series([True] * len(df), index=df.index)
+        m_cond = pd.Series(True, index=df.index)
+        if f.get('c_check'):
+            c_age = global_config.get('coluna_idade')
+            if f.get('c_idade_check') and c_age in df.columns:
+                s_age = self._safe_to_numeric(df[c_age])
+                if f.get('c_idade_val1'):
+                    m_cond &= self._apply_comparison(s_age, f['c_idade_op1'], float(str(f['c_idade_val1']).replace(',','.')))
+                if f.get('c_idade_val2'):
+                    m_cond &= self._apply_comparison(s_age, f['c_idade_op2'], float(str(f['c_idade_val2']).replace(',','.')))
+            
+            c_sex = global_config.get('coluna_sexo')
+            if f.get('c_sexo_check') and c_sex in df.columns:
+                val_sex = str(f.get('c_sexo_val', '')).strip().lower()
+                if val_sex:
+                    m_cond &= (df[c_sex].astype(str).str.strip().str.lower() == val_sex)
+
+        return m_main & m_cond
+
+    def run_chunked_filter(self, file_obj, filters, config):
+        active = [f for f in filters if f['p_check']]
+        processed_chunks = []
+        chunk_size = 45000 
+        file_obj.seek(0)
         
-        cond_mask = pd.Series(True, index=df.index)
-        
-        # Idade
-        c_age = global_config.get('coluna_idade')
-        if f.get('c_idade_check') and c_age in df.columns:
-            s_age = self._safe_to_numeric(df[c_age])
-            if f.get('c_idade_val1'):
-                cond_mask &= self._apply_comparison(s_age, f['c_idade_op1'], float(str(f['c_idade_val1']).replace(',','.')))
-            if f.get('c_idade_val2'):
-                cond_mask &= self._apply_comparison(s_age, f['c_idade_op2'], float(str(f['c_idade_val2']).replace(',','.')))
+        try:
+            is_csv = hasattr(file_obj, 'name') and file_obj.name.endswith('.csv')
+            if is_csv:
+                reader = pd.read_csv(file_obj, sep=None, engine='python', encoding='latin-1', chunksize=chunk_size)
+            else:
+                # Nota: Excel não permite chunking nativo, mas tentamos ler de forma otimizada
+                df_full = pd.read_excel(file_obj)
+                reader = [df_full]
 
-        # Sexo
-        c_sex = global_config.get('coluna_sexo')
-        if f.get('c_sexo_check') and c_sex in df.columns:
-            val_sex = str(f.get('c_sexo_val', '')).strip().lower()
-            if val_sex:
-                cond_mask &= (df[c_sex].astype(str).str.strip().str.lower() == val_sex)
-        
-        return cond_mask
-
-    def apply_filters(self, df: pd.DataFrame, filters_config: List[Dict], global_config: Dict, progress_bar) -> pd.DataFrame:
-        active = [f for f in filters_config if f['p_check']]
-        if not active: return df
-        
-        # Máscara global de EXCLUSÃO
-        to_exclude = pd.Series(False, index=df.index)
-        total = len(active)
-
-        for i, f in enumerate(active):
-            progress_bar.progress((i/total), text=f"Processando regra: {f.get('p_col')}...")
-            col = f.get('p_col')
-            if col and col in df.columns:
-                m_main = self._create_main_mask(df, f, col)
-                m_cond = self._create_conditional_mask(df, f, global_config)
-                to_exclude |= (m_main & m_cond)
-
-        progress_bar.progress(1.0, text="Finalizado!")
-        return df[~to_exclude]
-
-    def apply_stratification(self, df: pd.DataFrame, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
-        # Implementação simplificada mantendo a lógica de nomeação original
-        col_idade = global_config.get('coluna_idade')
-        col_sexo = global_config.get('coluna_sexo')
-        if not col_idade or not col_sexo: return {}
-
-        df[col_idade] = self._safe_to_numeric(df[col_idade])
-        generated = {}
-        
-        age_rules = strata_config.get('ages', [])
-        sex_rules = strata_config.get('sexes', [])
-        
-        # Combinações de Sexo e Idade
-        for i, s_rule in enumerate(sex_rules):
-            for j, a_rule in enumerate(age_rules):
-                mask = pd.Series(True, index=df.index)
+            prog_bar = st.progress(0, text="Lendo e filtrando blocos...")
+            
+            for i, chunk in enumerate(reader):
+                # Otimização de Memória (Downcasting)
+                for c in chunk.select_dtypes('float').columns:
+                    chunk[c] = pd.to_numeric(chunk[c], downcast='float')
                 
-                # Filtro Sexo
-                mask &= (df[col_sexo].astype(str).str.strip() == str(s_rule['value']))
+                to_exclude = pd.Series(False, index=chunk.index)
+                for f in active:
+                    to_exclude |= self._create_mask(chunk, f, config)
                 
-                # Filtro Idade
-                v1 = float(str(a_rule['val1']).replace(',','.'))
-                mask &= self._apply_comparison(df[col_idade], a_rule['op1'], v1)
-                if a_rule.get('val2'):
-                    v2 = float(str(a_rule['val2']).replace(',','.'))
-                    mask &= self._apply_comparison(df[col_idade], a_rule['op2'], v2)
-                
-                res = df[mask]
-                if not res.empty:
-                    name = f"Stratum_{s_rule['value']}_Age_{v1}"
-                    generated[name] = res
-        
-        progress_bar.progress(1.0)
-        return generated
+                processed_chunks.append(chunk[~to_exclude].copy())
+                del chunk
+                gc.collect()
+                prog_bar.progress(0.5, text=f"Processando bloco {i+1}...")
 
-# --- AUXILIARES ---
+            final_df = pd.concat(processed_chunks, ignore_index=True)
+            prog_bar.progress(1.0, text="Processamento Finalizado!")
+            return final_df
+        except Exception as e:
+            st.error(f"Erro Crítico: {e}")
+            return None
 
-@st.cache_data
-def load_dataframe(uploaded_file):
-    if uploaded_file is None: return None
-    try:
-        uploaded_file.seek(0)
-        if uploaded_file.name.endswith('.csv'):
-            return pd.read_csv(uploaded_file, sep=None, engine='python', decimal=',', encoding='latin-1')
-        return pd.read_excel(uploaded_file, engine='openpyxl')
-    except Exception as e:
-        st.error(f"Erro ao carregar: {e}"); return None
+# --- COMPONENTES DE INTERFACE ---
 
-def to_excel(df):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-    return output.getvalue()
-
-def to_csv(df):
-    return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
-
-# --- INTERFACE ---
-
-def handle_select_all():
-    new_state = st.session_state.get('select_all_master_checkbox', False)
-    for rule in st.session_state.filter_rules:
-        rule['p_check'] = new_state
-
-def draw_filter_rules(sex_values, col_options):
-    st.markdown("<style>.stCheckbox {margin-bottom: -15px;} .stButton>button {width:100%}</style>", unsafe_allow_html=True)
-    
-    cols_h = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5])
-    cols_h[0].checkbox("All", key='select_all_master_checkbox', on_change=handle_select_all, label_visibility="collapsed")
-    cols_h[1].write("**Column**")
-    cols_h[2].write("**Operator**")
-    cols_h[3].write("**Value**")
-    cols_h[5].write("**Compound**")
-    cols_h[6].write("**Cond.**")
-    
-    ops_main = ["", ">", "<", "=", "Not equal to", "≥", "≤"]
-
+def draw_filters_ui(cols):
+    ops = ["", ">", "<", "=", "Not equal to", "≥", "≤"]
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
-            c = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5])
-            rule['p_check'] = c[0].checkbox(" ", value=rule.get('p_check', True), key=f"chk_{rule['id']}", label_visibility="collapsed")
-            
-            rule['p_col'] = c[1].selectbox("Col", options=col_options, index=col_options.index(rule['p_col']) if rule['p_col'] in col_options else None, key=f"col_{rule['id']}", label_visibility="collapsed", placeholder="Select Col")
-            
-            rule['p_op1'] = c[2].selectbox("Op1", ops_main, index=ops_main.index(rule['p_op1']) if rule['p_op1'] in ops_main else 0, key=f"op1_{rule['id']}", label_visibility="collapsed")
-            rule['p_val1'] = c[3].text_input("V1", value=rule['p_val1'], key=f"val1_{rule['id']}", label_visibility="collapsed")
-            
+            c = st.columns([0.5, 3, 2, 2, 0.5, 3, 1])
+            rule['p_check'] = c[0].checkbox("On", value=rule['p_check'], key=f"chk_{rule['id']}", label_visibility="collapsed")
+            rule['p_col'] = c[1].selectbox("Col", cols, index=cols.index(rule['p_col']) if rule['p_col'] in cols else 0, key=f"col_{rule['id']}", label_visibility="collapsed")
+            rule['p_op1'] = c[2].selectbox("Op", ops, index=ops.index(rule['p_op1']) if rule['p_op1'] in ops else 0, key=f"op_{rule['id']}", label_visibility="collapsed")
+            rule['p_val1'] = c[3].text_input("Val", value=rule['p_val1'], key=f"val_{rule['id']}", label_visibility="collapsed")
             rule['p_expand'] = c[4].checkbox("+", value=rule['p_expand'], key=f"exp_{rule['id']}")
             
             if rule['p_expand']:
-                exp = c[5].columns([1.5, 1, 1.5])
-                rule['p_op_central'] = exp[0].selectbox("L", ["OR", "AND", "BETWEEN"], key=f"log_{rule['id']}", label_visibility="collapsed")
-                rule['p_op2'] = exp[1].selectbox("Op2", ops_main, key=f"op2_{rule['id']}", label_visibility="collapsed")
+                exp = c[5].columns([1, 1, 1])
+                rule['p_op_central'] = exp[0].selectbox("Log", ["OR", "AND", "BETWEEN"], key=f"log_{rule['id']}", label_visibility="collapsed")
+                rule['p_op2'] = exp[1].selectbox("Op2", ops, key=f"op2_{rule['id']}", label_visibility="collapsed")
                 rule['p_val2'] = exp[2].text_input("V2", value=rule['p_val2'], key=f"val2_{rule['id']}", label_visibility="collapsed")
             
-            rule['c_check'] = c[6].checkbox("C", value=rule['c_check'], key=f"cchk_{rule['id']}")
-            
-            btn = c[7].columns(2)
-            if btn[0].button("Clone", key=f"cln_{rule['id']}"):
-                nr = copy.deepcopy(rule); nr['id'] = str(uuid.uuid4())
-                st.session_state.filter_rules.insert(i+1, nr); st.rerun()
-            if btn[1].button("X", key=f"del_{rule['id']}"):
+            if c[6].button("X", key=f"del_{rule['id']}"):
                 st.session_state.filter_rules.pop(i); st.rerun()
 
-            if rule['c_check']:
-                cond = st.columns([1, 1, 4, 1, 4])
-                cond[1].write("↳")
-                rule['c_idade_check'] = cond[2].checkbox("Age Condition", value=rule['c_idade_check'], key=f"ca_{rule['id']}")
-                rule['c_sexo_check'] = cond[4].checkbox("Sex Condition", value=rule['c_sexo_check'], key=f"cs_{rule['id']}")
+# --- APLICAÇÃO PRINCIPAL ---
 
 def main():
-    if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
-    if not st.session_state.lgpd_accepted:
-        st.title("Data Sift")
+    if 'accepted_terms' not in st.session_state: st.session_state.accepted_terms = False
+    
+    # TELA DE TERMOS (LGPD)
+    if not st.session_state.accepted_terms:
+        st.title("Data Sift | Secure Filter")
         st.markdown(GDPR_TERMS)
-        if st.button("Accept and Continue"):
-            st.session_state.lgpd_accepted = True; st.rerun()
+        if st.button("I accept the terms and wish to proceed"):
+            st.session_state.accepted_terms = True
+            st.rerun()
         return
 
+    # INICIALIZAÇÃO DE ESTADO
     if 'filter_rules' not in st.session_state: st.session_state.filter_rules = copy.deepcopy(DEFAULT_FILTERS)
-    if 'stratum_rules' not in st.session_state: st.session_state.stratum_rules = []
 
-    st.title("Data Sift")
+    st.title("Data Sift 3.0")
     
-    with st.expander("1. Global Settings", expanded=True):
-        up = st.file_uploader("Upload", type=['csv', 'xlsx'])
-        df = load_dataframe(up)
-        cols = df.columns.tolist() if df is not None else []
+    with st.sidebar:
+        st.header("1. Data Input")
+        up = st.file_uploader("Upload CSV/Excel (Max 500MB)", type=['csv', 'xlsx'])
         
-        c1, c2, c3 = st.columns(3)
-        sel_age = c1.selectbox("Age Col", cols, key="col_idade", index=None)
-        sel_sex = c2.selectbox("Sex Col", cols, key="col_sexo", index=None)
-        fmt = c3.selectbox("Format", ["CSV", "Excel"], key="output_format")
+        with st.expander("Help / Manual"):
+            for title, content in MANUAL_CONTENT.items():
+                st.markdown(f"**{title}**\n{content}")
 
-    t1, t2 = st.tabs(["Filters", "Stratification"])
-    
-    with t1:
-        draw_filter_rules([], cols)
-        if st.button("Add Rule"):
-            st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '=', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''})
+    if up:
+        # Extração leve do cabeçalho
+        up.seek(0)
+        if up.name.endswith('.csv'):
+            header = pd.read_csv(up, nrows=0, sep=None, engine='python', encoding='latin-1')
+        else:
+            header = pd.read_excel(up, nrows=0)
+        
+        cols = header.columns.tolist()
+
+        with st.expander("2. Global Settings", expanded=True):
+            c1, c2, c3 = st.columns(3)
+            sel_age = c1.selectbox("Age Column", cols, index=None, placeholder="Select age column")
+            sel_sex = c2.selectbox("Sex Column", cols, index=None, placeholder="Select sex column")
+            out_fmt = c3.selectbox("Output Format", ["CSV", "Excel"])
+
+        st.subheader("3. Filter Rules (Exclusion Logic)")
+        draw_filters_ui(cols)
+        
+        if st.button("Add New Rule"):
+            st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': cols[0], 'p_op1': '=', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '', 'c_check': False})
             st.rerun()
-        
-        if st.button("RUN FILTER", type="primary"):
-            if df is not None:
-                proc = get_data_processor()
-                prog = st.progress(0)
-                res = proc.apply_filters(df, st.session_state.filter_rules, {"coluna_idade": sel_age, "coluna_sexo": sel_sex}, prog)
-                st.session_state.res_df = res
-                st.success(f"Restantes: {len(res)} linhas.")
-            else: st.error("No file!")
 
-        if 'res_df' in st.session_state:
-            data = to_excel(st.session_state.res_df) if fmt == "Excel" else to_csv(st.session_state.res_df)
-            st.download_button("Download Result", data, f"result.{'xlsx' if fmt=='Excel' else 'csv'}")
+        st.divider()
+        if st.button("RUN HEAVY PROCESSING", type="primary", use_container_width=True):
+            proc = DataProcessor()
+            config = {"coluna_idade": sel_age, "coluna_sexo": sel_sex}
+            
+            # O processamento acontece aqui sem carregar o arquivo inteiro na RAM global
+            res = proc.run_chunked_filter(up, st.session_state.filter_rules, config)
+            
+            if res is not None:
+                st.session_state.final_df = res
+                st.success(f"Processing Complete! {len(res)} rows retained.")
+
+        # DOWNLOAD DO RESULTADO
+        if 'final_df' in st.session_state:
+            df_res = st.session_state.final_df
+            if out_fmt == "CSV":
+                csv_data = df_res.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
+                st.download_button("📥 Download Filtered CSV", csv_data, "filtered_data.csv", "text/csv")
+            else:
+                out_io = io.BytesIO()
+                with pd.ExcelWriter(out_io, engine='openpyxl') as writer:
+                    df_res.to_excel(writer, index=False)
+                st.download_button("📥 Download Filtered Excel", out_io.getvalue(), "filtered_data.xlsx")
 
 if __name__ == "__main__":
     main()
