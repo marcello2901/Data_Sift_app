@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.7 - Arquitetura de detecção de encoding e separador blindada
+# Versão 1.9.8 - Correção de estabilidade na seleção de colunas e memória
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -333,49 +333,45 @@ class DataProcessor:
 
 # --- FUNÇÕES AUXILIARES ---
 
-def detect_and_get_columns(uploaded_file):
-    if uploaded_file is None: return []
+@st.cache_data(show_spinner=False)
+def detect_and_get_columns(file_content, file_name):
+    """Lê apenas o cabeçalho para detectar colunas sem sobrecarregar memória."""
+    if file_content is None: return []
     try:
-        uploaded_file.seek(0)
-        if uploaded_file.name.endswith('.csv'):
-            # Arquitetura de Força Bruta para Encoding e Separador
+        # Criar um buffer a partir do conteúdo para não resetar o file_uploader original
+        buffer = io.BytesIO(file_content)
+        if file_name.endswith('.csv'):
             encodings_to_try = ['utf-8-sig', 'latin-1', 'utf-8', 'cp1252']
             separators_to_try = [';', ',', '\t']
-            
             for enc in encodings_to_try:
                 for sep in separators_to_try:
                     try:
-                        uploaded_file.seek(0)
-                        # Usamos o pandas com engine python para máxima compatibilidade com erros de encoding
-                        df_test = pd.read_csv(uploaded_file, nrows=2, sep=sep, encoding=enc, encoding_errors='replace')
+                        buffer.seek(0)
+                        df_test = pd.read_csv(buffer, nrows=2, sep=sep, encoding=enc, encoding_errors='replace')
                         if len(df_test.columns) > 1:
                             st.session_state.detected_encoding = enc
                             st.session_state.detected_separator = sep
                             return df_test.columns.tolist()
-                    except Exception:
-                        continue
-            
-            # Último recurso: polars sem especificar nada
-            uploaded_file.seek(0)
-            return pl.read_csv(uploaded_file, n_rows=1).columns
+                    except Exception: continue
+            buffer.seek(0)
+            return pl.read_csv(buffer, n_rows=1).columns
         else:
-            df_header = pd.read_excel(uploaded_file, nrows=0)
+            df_header = pd.read_excel(buffer, nrows=0)
             return df_header.columns.tolist()
     except Exception as e:
         st.error(f"Critical error during column detection: {e}")
         return []
 
-@st.cache_data
-def get_unique_values(uploaded_file, column_name):
-    if not uploaded_file or not column_name: return []
-    enc = st.session_state.get('detected_encoding', 'latin-1')
-    sep = st.session_state.get('detected_separator', ';')
+@st.cache_data(show_spinner="Fetching unique values...")
+def get_unique_values_cached(file_content, file_name, column_name, enc, sep):
+    if not file_content or not column_name: return []
     try:
-        uploaded_file.seek(0)
-        if uploaded_file.name.endswith('.csv'):
-            df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=sep, engine='python', encoding=enc, encoding_errors='replace')
+        buffer = io.BytesIO(file_content)
+        if file_name.endswith('.csv'):
+            # Lê apenas a coluna necessária
+            df_col = pd.read_csv(buffer, usecols=[column_name], sep=sep, engine='python', encoding=enc, encoding_errors='replace')
         else:
-            df_col = pd.read_excel(uploaded_file, usecols=[column_name])
+            df_col = pd.read_excel(buffer, usecols=[column_name])
         return [""] + [str(x) for x in df_col[column_name].dropna().unique()]
     except Exception:
         return []
@@ -456,7 +452,7 @@ def draw_filter_rules(sex_column_values, column_options):
                 
                 rule['c_sexo_check'] = cond_cols[4].checkbox("Sex", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule_id}")
                 if rule['c_sexo_check']:
-                    rule['c_sexo_val'] = cond_cols[5].selectbox("SVal", options=sex_column_values, index=sex_column_values.index(rule['c_sexo_val']) if rule['c_sexo_val'] in sex_column_values else None, key=f"c_sexo_val_{rule_id}", label_visibility="collapsed")
+                    rule['c_sexo_val'] = cond_cols[5].selectbox("SVal", options=sex_column_values, index=sex_column_values.index(rule['c_sexo_val']) if rule['c_sexo_val'] in sex_column_values else 0, key=f"c_sexo_val_{rule_id}", label_visibility="collapsed")
         st.markdown("---")
 
 def draw_stratum_rules():
@@ -496,15 +492,19 @@ def main():
     with st.expander("1. Global Settings", expanded=True):
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls'])
         
-        if uploaded_file and (not st.session_state.column_options):
-            # Tenta detecção automática ao subir o arquivo
-            st.session_state.column_options = detect_and_get_columns(uploaded_file)
-        
+        # Só processamos as colunas se um arquivo novo foi carregado
         if uploaded_file:
-            if st.button("Manual Refresh (If columns didn't appear)"):
-                st.session_state.column_options = detect_and_get_columns(uploaded_file)
+            # Pegamos o conteúdo do arquivo uma vez para cache
+            file_bytes = uploaded_file.getvalue()
+            if not st.session_state.column_options:
+                st.session_state.column_options = detect_and_get_columns(file_bytes, uploaded_file.name)
+            
+            if st.button("Manual Refresh Columns"):
+                st.session_state.column_options = detect_and_get_columns(file_bytes, uploaded_file.name)
                 st.rerun()
-        
+        else:
+            st.session_state.column_options = []
+
         column_options = st.session_state.column_options
         
         c1, c2, c3 = st.columns(3)
@@ -514,7 +514,10 @@ def main():
 
         sex_column_values = []
         if uploaded_file and col_sexo and column_options:
-            sex_column_values = get_unique_values(uploaded_file, col_sexo)
+            enc = st.session_state.get('detected_encoding', 'latin-1')
+            sep = st.session_state.get('detected_separator', ';')
+            # Usando a versão com cache para evitar ler o arquivo a cada interação
+            sex_column_values = get_unique_values_cached(uploaded_file.getvalue(), uploaded_file.name, col_sexo, enc, sep)
 
     tab_filter, tab_stratify = st.tabs(["2. Filter Tool", "3. Stratification Tool"])
 
@@ -543,9 +546,12 @@ def main():
         if sex_column_values:
             if 'strat_gender_selection' not in st.session_state:
                 st.session_state.strat_gender_selection = {v: True for v in sex_column_values if v}
-            cols = st.columns(5)
-            for i, g in enumerate([v for v in sex_column_values if v]):
-                st.session_state.strat_gender_selection[g] = cols[i % 5].checkbox(str(g), value=st.session_state.strat_gender_selection.get(g, True), key=f"strat_sex_{g}")
+            
+            valid_genders = [v for v in sex_column_values if v]
+            if valid_genders:
+                cols = st.columns(5)
+                for i, g in enumerate(valid_genders):
+                    st.session_state.strat_gender_selection[g] = cols[i % 5].checkbox(str(g), value=st.session_state.strat_gender_selection.get(g, True), key=f"strat_sex_{g}")
 
         draw_stratum_rules()
         if st.button("Add Age Range"):
