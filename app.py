@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.8 - Correção de estabilidade na seleção de colunas e memória
+# Versão 1.9.9 - Correção de Fetching de Colunas e Otimização de Memória
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -171,7 +171,7 @@ class DataProcessor:
 
         col_sexo = global_config.get('coluna_sexo')
         if f.get('c_sexo_check') and col_sexo and col_sexo in df.columns:
-            val_sexo_gui = f.get('c_sexo_val', '').lower().strip()
+            val_sexo_gui = str(f.get('c_sexo_val', '')).lower().strip()
             if val_sexo_gui:
                 mascara_condicional &= self._build_single_mask(df[col_sexo], '==', val_sexo_gui)
         return mascara_condicional
@@ -338,7 +338,6 @@ def detect_and_get_columns(file_content, file_name):
     """Lê apenas o cabeçalho para detectar colunas sem sobrecarregar memória."""
     if file_content is None: return []
     try:
-        # Criar um buffer a partir do conteúdo para não resetar o file_uploader original
         buffer = io.BytesIO(file_content)
         if file_name.endswith('.csv'):
             encodings_to_try = ['utf-8-sig', 'latin-1', 'utf-8', 'cp1252']
@@ -363,22 +362,29 @@ def detect_and_get_columns(file_content, file_name):
         return []
 
 @st.cache_data(ttl=3600)
-def get_fast_unique_values(file_path, column_name):
-    # Lemos apenas uma amostra inicial para não estourar a memória
-    sample = pd.read_csv(file_path, usecols=[column_name], nrows=10000)
-    unique_vals = sample[column_name].dropna().unique().tolist()
-    return unique_vals
-
-# Na interface:
-    if column_sexo:
-        opcoes_encontradas = get_fast_unique_values(caminho_arquivo, column_sexo)
+def get_unique_values_cached(file_obj_bytes, file_name, column_name, encoding, separator):
+    """
+    Lê apenas uma amostra (20k linhas) de uma coluna específica para popular a UI,
+    prevenindo erros de memória 'Oh no'.
+    """
+    try:
+        buffer = io.BytesIO(file_obj_bytes)
+        if file_name.endswith('.csv'):
+            df_sample = pd.read_csv(
+                buffer, 
+                usecols=[column_name], 
+                nrows=20000, 
+                encoding=encoding, 
+                sep=separator,
+                on_bad_lines='skip'
+            )
+        else:
+            df_sample = pd.read_excel(buffer, usecols=[column_name], nrows=20000)
         
-        # Criamos um multiselect, mas permitimos que você adicione novos via texto se necessário
-        selecionados = st.multiselect(
-            "Selecione os valores para estratificação:",
-            options=opcoes_encontradas,
-            help="Lemos apenas as primeiras 20k linhas para poupar memória."
-        )
+        unique_vals = sorted([str(x) for x in df_sample[column_name].dropna().unique()])
+        return unique_vals
+    except Exception:
+        return []
 
 def to_excel(df):
     output = io.BytesIO()
@@ -496,9 +502,7 @@ def main():
     with st.expander("1. Global Settings", expanded=True):
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls'])
         
-        # Só processamos as colunas se um arquivo novo foi carregado
         if uploaded_file:
-            # Pegamos o conteúdo do arquivo uma vez para cache
             file_bytes = uploaded_file.getvalue()
             if not st.session_state.column_options:
                 st.session_state.column_options = detect_and_get_columns(file_bytes, uploaded_file.name)
@@ -520,8 +524,8 @@ def main():
         if uploaded_file and col_sexo and column_options:
             enc = st.session_state.get('detected_encoding', 'latin-1')
             sep = st.session_state.get('detected_separator', ';')
-            # Usando a versão com cache para evitar ler o arquivo a cada interação
-            sex_column_values = get_unique_values_cached(uploaded_file.getvalue(), uploaded_file.name, col_sexo, enc, sep)
+            # Passando file_bytes para a função com cache para evitar NameError e Oh No
+            sex_column_values = get_unique_values_cached(file_bytes, uploaded_file.name, col_sexo, enc, sep)
 
     tab_filter, tab_stratify = st.tabs(["2. Filter Tool", "3. Stratification Tool"])
 
@@ -567,8 +571,8 @@ def main():
 
         if st.session_state.get('confirm_stratify'):
             st.warning("Confirm stratification?")
-            c1, c2 = st.columns(2)
-            if c1.button("Confirm"):
+            cc1, cc2 = st.columns(2)
+            if cc1.button("Confirm"):
                 with st.spinner("Processing..."):
                     prog = st.progress(0)
                     processor = get_data_processor()
@@ -578,7 +582,7 @@ def main():
                     st.session_state.stratified_results = res
                 st.session_state.confirm_stratify = False
                 st.rerun()
-            if c2.button("Cancel"):
+            if cc2.button("Cancel"):
                 st.session_state.confirm_stratify = False
                 st.rerun()
 
@@ -589,5 +593,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
