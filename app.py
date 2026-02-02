@@ -313,22 +313,44 @@ class DataProcessor:
 
 # --- FUNÇÕES AUXILIARES ---
 
-@st.cache_data
+@st.cache_data(max_entries=1, show_spinner="Lendo base de dados...")
 def load_dataframe(uploaded_file):
     if uploaded_file is None: return None
     try:
+        # Voltamos ao início do arquivo para garantir a leitura
         uploaded_file.seek(0)
+        
         if uploaded_file.name.endswith('.csv'):
-            try: 
-                # Adicionado low_memory=False para lidar com arquivos gigantes
-                return pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=';', decimal=',', encoding='latin-1', low_memory=False)
+            # Tentativa 1: Padrão Brasileiro (ponto e vírgula e vírgula decimal)
+            try:
+                # low_memory=True ajuda a processar em pedaços para economizar RAM
+                return pd.read_csv(
+                    uploaded_file, 
+                    sep=';', 
+                    decimal=',', 
+                    encoding='latin-1', 
+                    low_memory=True,
+                    on_bad_lines='skip' # Pula linhas corrompidas para não travar
+                )
             except Exception:
                 uploaded_file.seek(0)
-                return pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=',', decimal='.', encoding='utf-8', low_memory=False)
+                # Tentativa 2: Padrão Internacional (vírgula e ponto decimal)
+                return pd.read_csv(
+                    uploaded_file, 
+                    sep=',', 
+                    decimal='.', 
+                    encoding='utf-8', 
+                    low_memory=True,
+                    on_bad_lines='skip'
+                )
         else:
-            return pd.read_excel(io.BytesIO(uploaded_file.getvalue()), engine='openpyxl')
+            # Para Excel, não há muito como fugir do consumo de RAM
+            return pd.read_excel(uploaded_file, engine='openpyxl')
+            
     except Exception as e:
-        st.error(f"Error reading file: {e}"); return None
+        st.error(f"Error reading file: {e}")
+        return None
+
 
 def to_excel(df):
     output = io.BytesIO()
@@ -511,8 +533,13 @@ def main():
 
     with st.expander("1. Global Settings", expanded=True):
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls'])
-        df = load_dataframe(uploaded_file)
-        column_options = df.columns.tolist() if df is not None else []
+        df = None
+        if uploaded_file:
+            df = load_dataframe(uploaded_file)
+        if df is not None:
+            column_options = df.columns.tolist()
+        else:
+        column_options = []
         c1, c2, c3 = st.columns(3)
         with c1: st.selectbox("Age Column", options=column_options, key="col_idade", index=None, placeholder="Select Age column")
         with c2: st.selectbox("Sex/Gender Column", options=column_options, key="col_sexo", index=None, placeholder="Select Sex column")
@@ -609,3 +636,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
