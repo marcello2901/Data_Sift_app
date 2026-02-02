@@ -181,19 +181,19 @@ class DataProcessor:
         active_filters = [f for f in filters_config if f['p_check']]
         
         # Obter cabeçalho para inicializar o DataFrame final vazio se necessário
-        header_df = pd.read_csv(uploaded_file, nrows=0, sep=",", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, nrows=0)
+        header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, nrows=0)
         
         if not active_filters:
             progress_bar.progress(1.0, text="No active filters.")
             uploaded_file.seek(0)
-            return pd.read_csv(uploaded_file, sep=",", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            return pd.read_csv(uploaded_file, sep=";", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
 
         processed_chunks = []
         uploaded_file.seek(0)
         
         # Configuração do leitor de chunks
         if uploaded_file.name.endswith('.csv'):
-            reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=",", engine='python', decimal=',', encoding='latin-1')
+            reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding='latin-1')
         else:
             # Excel não suporta chunksize nativo da mesma forma, mas simulamos para manter a lógica
             full_df = pd.read_excel(uploaded_file)
@@ -233,7 +233,7 @@ class DataProcessor:
     def apply_stratification(self, uploaded_file, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
         # Para estratificação, carregamos o arquivo (geralmente ele já foi filtrado e está menor)
         uploaded_file.seek(0)
-        df = pd.read_csv(uploaded_file, sep=",", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+        df = pd.read_csv(uploaded_file, sep=";", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
         
         col_idade = global_config.get('coluna_idade')
         col_sexo = global_config.get('coluna_sexo')
@@ -350,7 +350,7 @@ def get_unique_values(uploaded_file, column_name):
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'):
-            df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=",", engine='python')
+            df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=";", engine='python')
         else:
             df_col = pd.read_excel(uploaded_file, usecols=[column_name])
         return [""] + list(df_col[column_name].dropna().unique())
@@ -554,4 +554,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
