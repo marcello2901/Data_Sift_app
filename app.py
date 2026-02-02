@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.2 - Implementação de processamento otimizado com Polars e Chunks
+# Versão 1.9.3 - Correção de erro de casting NoneType no separador
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -181,21 +181,21 @@ class DataProcessor:
         active_filters = [f for f in filters_config if f['p_check']]
         
         # Obter cabeçalho para inicializar o DataFrame final vazio se necessário
-        header_df = pd.read_csv(uploaded_file, nrows=0, sep="None", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, nrows=0)
+        uploaded_file.seek(0)
+        header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, nrows=0)
         
         if not active_filters:
             progress_bar.progress(1.0, text="No active filters.")
             uploaded_file.seek(0)
-            return pd.read_csv(uploaded_file, sep="None", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            return pd.read_csv(uploaded_file, sep=";", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
 
         processed_chunks = []
         uploaded_file.seek(0)
         
         # Configuração do leitor de chunks
         if uploaded_file.name.endswith('.csv'):
-            reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep="None", engine='python', decimal=',', encoding='latin-1')
+            reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding='latin-1')
         else:
-            # Excel não suporta chunksize nativo da mesma forma, mas simulamos para manter a lógica
             full_df = pd.read_excel(uploaded_file)
             reader = [full_df[i:i + CHUNK_SIZE] for i in range(0, len(full_df), CHUNK_SIZE)]
 
@@ -231,9 +231,8 @@ class DataProcessor:
         return pd.concat(processed_chunks, ignore_index=True) if processed_chunks else pd.DataFrame(columns=header_df.columns)
 
     def apply_stratification(self, uploaded_file, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
-        # Para estratificação, carregamos o arquivo (geralmente ele já foi filtrado e está menor)
         uploaded_file.seek(0)
-        df = pd.read_csv('seu_arquivo.csv', sep=None, engine='python', encoding='utf-8') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+        df = pd.read_csv(uploaded_file, sep=";", engine='python', encoding='utf-8') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
         
         col_idade = global_config.get('coluna_idade')
         col_sexo = global_config.get('coluna_sexo')
@@ -328,13 +327,11 @@ class DataProcessor:
 
 @st.cache_data
 def get_column_names(uploaded_file):
-    """Extração ultra-rápida de nomes de colunas usando Polars ou nrows=0"""
     if uploaded_file is None: return []
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'):
-            # Polars é imbatível para ler apenas o schema de CSVs gigantes
-            df_schema = pl.read_csv(uploaded_file, n_rows=0, ignore_errors=True, separator=None)
+            df_schema = pl.read_csv(uploaded_file, n_rows=0, ignore_errors=True, separator=';')
             return df_schema.columns
         else:
             df_header = pd.read_excel(uploaded_file, nrows=0)
@@ -345,12 +342,11 @@ def get_column_names(uploaded_file):
 
 @st.cache_data
 def get_unique_values(uploaded_file, column_name):
-    """Lê apenas uma coluna específica para extrair valores únicos, economizando RAM"""
     if not uploaded_file or not column_name: return []
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'):
-            df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep="None", engine='python')
+            df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=";", engine='python')
         else:
             df_col = pd.read_excel(uploaded_file, usecols=[column_name])
         return [""] + list(df_col[column_name].dropna().unique())
@@ -403,7 +399,6 @@ def draw_filter_rules(sex_column_values, column_options):
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             
-            # Dropdown de colunas
             rule['p_col'] = cols[1].selectbox("Col", options=column_options, index=column_options.index(rule['p_col']) if rule['p_col'] in column_options else None, key=f"p_col_{rule['id']}", label_visibility="collapsed")
             rule['p_op1'] = cols[2].selectbox("Op1", ops_main, index=ops_main.index(rule.get('p_op1', '=')) if rule.get('p_op1') in ops_main else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
             rule['p_val1'] = cols[3].text_input("V1", value=rule.get('p_val1', ''), key=f"p_val1_{rule['id']}", label_visibility="collapsed")
@@ -476,7 +471,6 @@ def main():
     with st.expander("1. Global Settings", expanded=True):
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls'])
         
-        # OTIMIZAÇÃO: Carrega apenas nomes das colunas sem ler o arquivo todo
         column_options = get_column_names(uploaded_file)
         
         c1, c2, c3 = st.columns(3)
@@ -489,7 +483,6 @@ def main():
         sex_column_values = []
 
         if uploaded_file and col_sexo:
-            # OTIMIZAÇÃO: Lê apenas a coluna de sexo para pegar valores únicos
             sex_column_values = get_unique_values(uploaded_file, col_sexo)
             if len(sex_column_values) > 11: # +1 do vazio
                 st.warning("Too many unique values in Sex column."); st.session_state.sex_column_is_valid = False
@@ -507,7 +500,6 @@ def main():
             with st.spinner("Processing in chunks..."):
                 prog = st.progress(0)
                 processor = get_data_processor()
-                # OTIMIZAÇÃO: Passamos o ponteiro do arquivo para ler em chunks dentro da função
                 filtered_df = processor.apply_filters(uploaded_file, st.session_state.filter_rules, {"coluna_idade": col_idade, "coluna_sexo": col_sexo}, prog)
                 
                 if not filtered_df.empty:
@@ -554,6 +546,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
