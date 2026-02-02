@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.3 - Correção de erro de casting NoneType no separador
+# Versão 1.9.4 - Correção de erro de codificação "invalid utf-8 sequence"
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -180,21 +180,38 @@ class DataProcessor:
     def apply_filters(self, uploaded_file, filters_config: List[Dict], global_config: Dict, progress_bar) -> pd.DataFrame:
         active_filters = [f for f in filters_config if f['p_check']]
         
-        # Obter cabeçalho para inicializar o DataFrame final vazio se necessário
         uploaded_file.seek(0)
-        header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, nrows=0)
+        try:
+            # Tenta UTF-8, se falhar vai para Latin-1
+            header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python', encoding='utf-8') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file, nrows=0)
+        except UnicodeDecodeError:
+            uploaded_file.seek(0)
+            header_df = pd.read_csv(uploaded_file, nrows=0, sep=";", engine='python', encoding='latin-1')
         
         if not active_filters:
             progress_bar.progress(1.0, text="No active filters.")
             uploaded_file.seek(0)
-            return pd.read_csv(uploaded_file, sep=";", engine='python') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            try:
+                return pd.read_csv(uploaded_file, sep=";", engine='python', encoding='utf-8') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            except UnicodeDecodeError:
+                uploaded_file.seek(0)
+                return pd.read_csv(uploaded_file, sep=";", engine='python', encoding='latin-1')
 
         processed_chunks = []
         uploaded_file.seek(0)
         
-        # Configuração do leitor de chunks
         if uploaded_file.name.endswith('.csv'):
-            reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding='latin-1')
+            try:
+                reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding='utf-8')
+                # Forçamos a leitura do primeiro chunk para testar o encoding
+                first_chunk = next(reader)
+                reader = pd.concat([pd.DataFrame(first_chunk), reader]) # Reconstroi o gerador simplificado
+                reader = [first_chunk] # Na verdade, para simplificar o erro de chunking com try/except, lemos denovo abaixo
+                uploaded_file.seek(0)
+                reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding='utf-8')
+            except (UnicodeDecodeError, StopIteration):
+                uploaded_file.seek(0)
+                reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=";", engine='python', decimal=',', encoding='latin-1')
         else:
             full_df = pd.read_excel(uploaded_file)
             reader = [full_df[i:i + CHUNK_SIZE] for i in range(0, len(full_df), CHUNK_SIZE)]
@@ -232,7 +249,11 @@ class DataProcessor:
 
     def apply_stratification(self, uploaded_file, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
         uploaded_file.seek(0)
-        df = pd.read_csv(uploaded_file, sep=";", engine='python', encoding='utf-8') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+        try:
+            df = pd.read_csv(uploaded_file, sep=";", engine='python', encoding='utf-8') if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+        except UnicodeDecodeError:
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, sep=";", engine='python', encoding='latin-1')
         
         col_idade = global_config.get('coluna_idade')
         col_sexo = global_config.get('coluna_sexo')
@@ -331,8 +352,15 @@ def get_column_names(uploaded_file):
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'):
-            df_schema = pl.read_csv(uploaded_file, n_rows=0, ignore_errors=True, separator=';')
-            return df_schema.columns
+            try:
+                # Tenta ler o cabeçalho em UTF-8
+                df_schema = pl.read_csv(uploaded_file, n_rows=0, ignore_errors=True, separator=';', encoding='utf8')
+                return df_schema.columns
+            except:
+                # Se falhar, tenta Latin-1
+                uploaded_file.seek(0)
+                df_schema = pl.read_csv(uploaded_file, n_rows=0, ignore_errors=True, separator=';', encoding='latin1')
+                return df_schema.columns
         else:
             df_header = pd.read_excel(uploaded_file, nrows=0)
             return df_header.columns.tolist()
@@ -346,7 +374,11 @@ def get_unique_values(uploaded_file, column_name):
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'):
-            df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=";", engine='python')
+            try:
+                df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=";", engine='python', encoding='utf-8')
+            except UnicodeDecodeError:
+                uploaded_file.seek(0)
+                df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=";", engine='python', encoding='latin-1')
         else:
             df_col = pd.read_excel(uploaded_file, usecols=[column_name])
         return [""] + list(df_col[column_name].dropna().unique())
