@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.6 - Otimização para arquivos grandes e detecção de separador
+# Versão 1.9.7 - Arquitetura de detecção de encoding e separador blindada
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -180,19 +180,22 @@ class DataProcessor:
         active_filters = [f for f in filters_config if f['p_check']]
         
         uploaded_file.seek(0)
-        enc = st.session_state.get('detected_encoding', 'utf-8')
+        enc = st.session_state.get('detected_encoding', 'latin-1')
         sep = st.session_state.get('detected_separator', ';')
 
         if not active_filters:
             progress_bar.progress(1.0, text="No active filters.")
             uploaded_file.seek(0)
-            return pd.read_csv(uploaded_file, sep=sep, engine='python', encoding=enc) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            if uploaded_file.name.endswith('.csv'):
+                return pd.read_csv(uploaded_file, sep=sep, engine='python', encoding=enc, encoding_errors='replace', on_bad_lines='skip')
+            else:
+                return pd.read_excel(uploaded_file)
 
         processed_chunks = []
         uploaded_file.seek(0)
         
         if uploaded_file.name.endswith('.csv'):
-            reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=sep, engine='python', decimal=',', encoding=enc)
+            reader = pd.read_csv(uploaded_file, chunksize=CHUNK_SIZE, sep=sep, engine='python', decimal=',', encoding=enc, encoding_errors='replace', on_bad_lines='skip')
         else:
             full_df = pd.read_excel(uploaded_file)
             reader = [full_df[i:i + CHUNK_SIZE] for i in range(0, len(full_df), CHUNK_SIZE)]
@@ -230,11 +233,11 @@ class DataProcessor:
 
     def apply_stratification(self, uploaded_file, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
         uploaded_file.seek(0)
-        enc = st.session_state.get('detected_encoding', 'utf-8')
+        enc = st.session_state.get('detected_encoding', 'latin-1')
         sep = st.session_state.get('detected_separator', ';')
         try:
             if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file, sep=sep, engine='python', encoding=enc)
+                df = pd.read_csv(uploaded_file, sep=sep, engine='python', encoding=enc, encoding_errors='replace', on_bad_lines='skip')
             else:
                 df = pd.read_excel(uploaded_file)
         except Exception as e:
@@ -335,37 +338,42 @@ def detect_and_get_columns(uploaded_file):
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'):
-            # Tenta descobrir separador e encoding
-            for encoding in ['utf8', 'latin1']:
-                for separator in [';', ',']:
+            # Arquitetura de Força Bruta para Encoding e Separador
+            encodings_to_try = ['utf-8-sig', 'latin-1', 'utf-8', 'cp1252']
+            separators_to_try = [';', ',', '\t']
+            
+            for enc in encodings_to_try:
+                for sep in separators_to_try:
                     try:
                         uploaded_file.seek(0)
-                        df_schema = pl.read_csv(uploaded_file, n_rows=1, separator=separator, encoding=encoding)
-                        if len(df_schema.columns) > 1:
-                            st.session_state.detected_encoding = encoding
-                            st.session_state.detected_separator = separator
-                            return df_schema.columns
+                        # Usamos o pandas com engine python para máxima compatibilidade com erros de encoding
+                        df_test = pd.read_csv(uploaded_file, nrows=2, sep=sep, encoding=enc, encoding_errors='replace')
+                        if len(df_test.columns) > 1:
+                            st.session_state.detected_encoding = enc
+                            st.session_state.detected_separator = sep
+                            return df_test.columns.tolist()
                     except Exception:
                         continue
-            # Se nada funcionar, tenta o polars genérico
+            
+            # Último recurso: polars sem especificar nada
             uploaded_file.seek(0)
             return pl.read_csv(uploaded_file, n_rows=1).columns
         else:
             df_header = pd.read_excel(uploaded_file, nrows=0)
             return df_header.columns.tolist()
     except Exception as e:
-        st.error(f"Error detecting columns: {e}")
+        st.error(f"Critical error during column detection: {e}")
         return []
 
 @st.cache_data
 def get_unique_values(uploaded_file, column_name):
     if not uploaded_file or not column_name: return []
-    enc = st.session_state.get('detected_encoding', 'utf-8')
+    enc = st.session_state.get('detected_encoding', 'latin-1')
     sep = st.session_state.get('detected_separator', ';')
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.endswith('.csv'):
-            df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=sep, engine='python', encoding=enc)
+            df_col = pd.read_csv(uploaded_file, usecols=[column_name], sep=sep, engine='python', encoding=enc, encoding_errors='replace')
         else:
             df_col = pd.read_excel(uploaded_file, usecols=[column_name])
         return [""] + [str(x) for x in df_col[column_name].dropna().unique()]
@@ -379,7 +387,7 @@ def to_excel(df):
     return output.getvalue()
 
 def to_csv(df):
-    return df.to_csv(index=False, sep=',', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
+    return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
 # --- FUNÇÕES DE INTERFACE ---
 
@@ -488,9 +496,12 @@ def main():
     with st.expander("1. Global Settings", expanded=True):
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls'])
         
-        # Botão para forçar leitura de colunas em arquivos pesados
         if uploaded_file and (not st.session_state.column_options):
-            if st.button("Refresh Column Names (Large File Detection)"):
+            # Tenta detecção automática ao subir o arquivo
+            st.session_state.column_options = detect_and_get_columns(uploaded_file)
+        
+        if uploaded_file:
+            if st.button("Manual Refresh (If columns didn't appear)"):
                 st.session_state.column_options = detect_and_get_columns(uploaded_file)
                 st.rerun()
         
