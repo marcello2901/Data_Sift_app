@@ -379,7 +379,7 @@ def to_excel(df):
     return output.getvalue()
 
 def to_csv(df):
-    return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
+    return df.to_csv(index=False, sep=',', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
 # --- FUNÇÕES DE INTERFACE ---
 
