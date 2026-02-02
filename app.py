@@ -362,19 +362,23 @@ def detect_and_get_columns(file_content, file_name):
         st.error(f"Critical error during column detection: {e}")
         return []
 
-@st.cache_data(show_spinner="Fetching unique values...")
-def get_unique_values_cached(file_content, file_name, column_name, enc, sep):
-    if not file_content or not column_name: return []
-    try:
-        buffer = io.BytesIO(file_content)
-        if file_name.endswith('.csv'):
-            # Lê apenas a coluna necessária
-            df_col = pd.read_csv(buffer, usecols=[column_name], sep=sep, engine='python', encoding=enc, encoding_errors='replace')
-        else:
-            df_col = pd.read_excel(buffer, usecols=[column_name])
-        return [""] + [str(x) for x in df_col[column_name].dropna().unique()]
-    except Exception:
-        return []
+@st.cache_data(ttl=3600)
+def get_fast_unique_values(file_path, column_name):
+    # Lemos apenas uma amostra inicial para não estourar a memória
+    sample = pd.read_csv(file_path, usecols=[column_name], nrows=10000)
+    unique_vals = sample[column_name].dropna().unique().tolist()
+    return unique_vals
+
+# Na interface:
+if column_sexo:
+    opcoes_encontradas = get_fast_unique_values(caminho_arquivo, column_sexo)
+    
+    # Criamos um multiselect, mas permitimos que você adicione novos via texto se necessário
+    selecionados = st.multiselect(
+        "Selecione os valores para estratificação:",
+        options=opcoes_encontradas,
+        help="Lemos apenas as primeiras 20k linhas para poupar memória."
+    )
 
 def to_excel(df):
     output = io.BytesIO()
@@ -585,3 +589,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
