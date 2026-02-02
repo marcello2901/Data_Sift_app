@@ -370,15 +370,15 @@ def get_fast_unique_values(file_path, column_name):
     return unique_vals
 
 # Na interface:
-if column_sexo:
-    opcoes_encontradas = get_fast_unique_values(caminho_arquivo, column_sexo)
-    
-    # Criamos um multiselect, mas permitimos que você adicione novos via texto se necessário
-    selecionados = st.multiselect(
-        "Selecione os valores para estratificação:",
-        options=opcoes_encontradas,
-        help="Lemos apenas as primeiras 20k linhas para poupar memória."
-    )
+    if column_sexo:
+        opcoes_encontradas = get_fast_unique_values(caminho_arquivo, column_sexo)
+        
+        # Criamos um multiselect, mas permitimos que você adicione novos via texto se necessário
+        selecionados = st.multiselect(
+            "Selecione os valores para estratificação:",
+            options=opcoes_encontradas,
+            help="Lemos apenas as primeiras 20k linhas para poupar memória."
+        )
 
 def to_excel(df):
     output = io.BytesIO()
@@ -589,4 +589,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
