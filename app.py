@@ -413,7 +413,7 @@ def to_csv(df):
 # --- FUNÇÕES DE INTERFACE ---
 
 def handle_select_all():
-    """Lógica para marcar/desmarcar todos os filtros."""
+    """Lógica para marcar/desmarcar todos os filtros baseado no estado da master checkbox."""
     new_state = st.session_state['select_all_master_checkbox']
     for rule in st.session_state.filter_rules:
         rule['p_check'] = new_state
@@ -429,15 +429,15 @@ def draw_filter_rules(sex_column_values, column_options):
     
     header_cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium")
     
-    # Verifica o estado atual para ver se a master checkbox deve estar marcada
+    # Cálculo dinâmico para garantir que a Master Checkbox reflita o estado real
     if st.session_state.filter_rules:
-        all_checked = all(rule.get('p_check', True) for rule in st.session_state.filter_rules)
+        all_checked = all(rule.get('p_check', False) for rule in st.session_state.filter_rules)
     else:
         all_checked = False
 
-    # MASTER CHECKBOX (A que você inspecionou)
+    # MASTER CHECKBOX AJUSTADA: Adição do label correto para gerar o aria-label observado
     header_cols[0].checkbox(
-        "Select/Deselect all",
+        "Selecionar/Desmarcar tudo",
         value=all_checked,
         key='select_all_master_checkbox', 
         on_change=handle_select_all,   
@@ -463,7 +463,14 @@ def draw_filter_rules(sex_column_values, column_options):
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
-            rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
+            
+            # Checkbox Individual
+            rule['p_check'] = cols[0].checkbox(
+                f"Ativar regra {rule['id']}", 
+                value=rule.get('p_check', True), 
+                key=f"p_check_{rule['id']}", 
+                label_visibility="collapsed"
+            )
             
             rule['p_col'] = cols[1].text_input(
                 "Column", 
