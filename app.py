@@ -416,7 +416,8 @@ def to_csv(df):
 # --- FUNÇÕES DE INTERFACE ---
 
 def handle_select_all():
-    new_state = st.session_state.get('select_all_master_checkbox', False)
+    """Callback para sincronizar o estado de todas as regras com o checkbox mestre."""
+    new_state = st.session_state['select_all_master_checkbox']
     for rule in st.session_state.filter_rules:
         rule['p_check'] = new_state
 
@@ -435,6 +436,7 @@ def draw_filter_rules(sex_column_values, column_options):
     
     header_cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium")
     
+    # Determina o valor inicial do master checkbox com base no estado atual das regras
     if st.session_state.filter_rules:
         all_checked = all(rule.get('p_check', True) for rule in st.session_state.filter_rules)
     else:
@@ -472,7 +474,14 @@ AND: Excludes values within an interval, without the extremes."""
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
-            rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
+            
+            # Aqui garantimos que o checkbox individual use o estado persistido no session_state
+            rule['p_check'] = cols[0].checkbox(
+                " ", 
+                value=rule.get('p_check', True), 
+                key=f"p_check_{rule['id']}", 
+                label_visibility="collapsed"
+            )
             
             rule['p_col'] = cols[1].text_input(
                 "Column", 
@@ -587,7 +596,6 @@ def main():
     st.title("Data Sift")
 
     with st.expander("1. Global Settings", expanded=True):
-        # Atualizado para aceitar .zip explicitamente na interface
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls', 'zip'])
         df = load_dataframe(uploaded_file)
         
@@ -719,7 +727,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
