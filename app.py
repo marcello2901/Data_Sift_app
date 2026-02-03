@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.2 - Atualização: Entrada de coluna manual (sem selectbox)
-# Melhorias: Nome das colunas pré-setado via text_input para flexibilidade total.
+# Versão 1.9.3 - Atualização: Suporte a arquivos ZIP
+# Melhorias: Leitura de arquivos compactados mantendo otimização de memória.
 
 import streamlit as st
 import pandas as pd
@@ -9,6 +9,7 @@ import numpy as np
 import io
 import uuid
 import copy
+import zipfile
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Optional
@@ -342,16 +343,45 @@ class DataProcessor:
 def load_dataframe(uploaded_file):
     if uploaded_file is None: return None
     try:
-        uploaded_file.seek(0)
-        if uploaded_file.name.endswith('.csv'):
+        file_name = uploaded_file.name.lower()
+        
+        # --- LÓGICA DE TRATAMENTO DE ZIP ---
+        if file_name.endswith('.zip'):
+            with zipfile.ZipFile(uploaded_file) as z:
+                # Busca por arquivos CSV ou Excel válidos dentro do ZIP
+                valid_files = [f for f in z.namelist() if not f.startswith('__MACOSX/') and 
+                               (f.lower().endswith('.csv') or f.lower().endswith(('.xlsx', '.xls')))]
+                
+                if not valid_files:
+                    st.error("ZIP does not contain valid CSV or Excel files.")
+                    return None
+                
+                # Abre o primeiro arquivo válido encontrado
+                with z.open(valid_files[0]) as f:
+                    content = f.read()
+                    inner_filename = valid_files[0].lower()
+                    
+                    if inner_filename.endswith('.csv'):
+                        try:
+                            df = pd.read_csv(io.BytesIO(content), sep=';', decimal=',', encoding='latin-1', low_memory=False)
+                        except Exception:
+                            df = pd.read_csv(io.BytesIO(content), sep=',', decimal='.', encoding='utf-8', low_memory=False)
+                    else:
+                        df = pd.read_excel(io.BytesIO(content), engine='openpyxl')
+        
+        # --- LÓGICA ORIGINAL PARA ARQUIVOS DIRETOS ---
+        elif file_name.endswith('.csv'):
+            uploaded_file.seek(0)
             try: 
                 df = pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=';', decimal=',', encoding='latin-1', low_memory=False)
             except Exception:
                 uploaded_file.seek(0)
                 df = pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=',', decimal='.', encoding='utf-8', low_memory=False)
         else:
+            uploaded_file.seek(0)
             df = pd.read_excel(io.BytesIO(uploaded_file.getvalue()), engine='openpyxl')
 
+        # Manutenção da otimização funcional do código original
         fcols = df.select_dtypes('float').columns
         icols = df.select_dtypes('integer').columns
         df[fcols] = df[fcols].apply(pd.to_numeric, downcast='float')
@@ -437,7 +467,6 @@ AND: Excludes values within an interval, without the extremes."""
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             
-            # --- ALTERAÇÃO: TEXT_INPUT EM VEZ DE SELECTBOX ---
             rule['p_col'] = cols[1].text_input(
                 "Column", 
                 value=rule.get('p_col', ''), 
@@ -551,7 +580,8 @@ def main():
     st.title("Data Sift")
 
     with st.expander("1. Global Settings", expanded=True):
-        uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls'])
+        # Atualizado para aceitar .zip explicitamente na interface
+        uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls', 'zip'])
         df = load_dataframe(uploaded_file)
         
         column_options = df.columns.tolist() if df is not None else []
