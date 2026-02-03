@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.4 - Atualização: Master Checkbox e Suporte a ZIP
-# Melhorias: Implementação de "Selecionar Todos" para as Exclusion Rules.
+# Versão 1.9.5 - Atualização: Correção de Estado de Download
+# Melhorias: Limpeza automática de resultados ao trocar de arquivo (Reset on Upload).
 
 import streamlit as st
 import pandas as pd
@@ -418,6 +418,12 @@ def handle_select_all():
     for rule in st.session_state.filter_rules:
         rule['p_check'] = new_state
 
+def reset_results_on_upload():
+    """Limpa os resultados anteriores quando um novo arquivo é carregado."""
+    if 'filtered_result' in st.session_state: del st.session_state['filtered_result']
+    if 'stratified_results' in st.session_state: del st.session_state['stratified_results']
+    st.session_state.confirm_stratify = False
+
 def draw_filter_rules(sex_column_values, column_options): 
     st.markdown("""<style>
         .stButton>button { padding: 0.25rem 0.3rem; font-size: 0.8rem; white-space: nowrap; }
@@ -575,7 +581,12 @@ def main():
     st.title("Data Sift")
 
     with st.expander("1. Global Settings", expanded=True):
-        uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls', 'zip'])
+        uploaded_file = st.file_uploader(
+            "Select spreadsheet", 
+            type=['csv', 'xlsx', 'xls', 'zip'],
+            on_change=reset_results_on_upload,
+            key="file_uploader_widget"
+        )
         df = load_dataframe(uploaded_file)
         column_options = df.columns.tolist() if df is not None else []
         c1, c2, c3 = st.columns(3)
@@ -681,4 +692,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
