@@ -8,4 +8,5 @@ streamlit-authenticator
 pyyaml
 altair<5
 tzdata
-polars
+zipfile
+io
