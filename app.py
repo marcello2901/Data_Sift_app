@@ -92,26 +92,26 @@ Unlike the filter, the purpose of this tool is to **split** your spreadsheet int
 }
 
 DEFAULT_FILTERS = [
-        {'col': 'CAPA.IST', 'op1': '<', 'val1': '15', 'exp': True, 'opc': 'OR', 'op2': '>', 'val2': '50'},
-        {'col': 'Ferritina.FERRI', 'op1': '<', 'op1': '<', 'val1': '15', 'exp': True, 'opc': 'OR', 'op2': '>', 'val2': '600'},
-        {'col': 'Ultra-PCR.ULTRAPCR', 'op1': '>', 'val1': '5', 'exp': False},
-        {'col': 'Creatinina.CRE', 'op1': '>', 'val1': '1,5', 'exp': False},
-        {'col': 'Creatinina.eTGF2021', 'op1': '<', 'val1': '60', 'exp': False},
-        {'col': 'GLICOSE.GLI', 'op1': '<', 'val1': '65', 'exp': True, 'opc': 'OR', 'op2': '>', 'val2': '200'},
-        {'col': 'HBGLI.HBGLI', 'op1': '>', 'val1': '6,5', 'exp': False},
-        {'col': 'TSH.TSH', 'op1': '<', 'val1': '0,2', 'exp': True, 'opc': 'OR', 'op2': '>', 'val2': '10'},
-        {'col': 'TGP.TGP', 'op1': '>', 'val1': '123', 'exp': False},
-        {'col': 'BTF.BTBTF', 'op1': '>', 'val1': '2,4', 'exp': False},
-        {'col': 'FALC.FALC', 'op1': '>', 'val1': '193,5', 'exp': False},
-        {'col': 'GGT.GGT', 'op1': '>', 'val1': '180', 'exp': False},
-        {'col': 'LIPIDOGRAMA.COL2', 'op1': '>', 'val1': '190', 'exp': False},
-        {'col': 'COLESTEROL TOTAL E FRACOES.COL2', 'op1': '>', 'val1': '190', 'exp': False},
-        {'col': 'LIPIDOGRAMA.TRI2', 'op1': '>', 'val1': '150', 'exp': False},
-        {'col': 'COLESTEROL TOTAL E FRACOES.TRI2', 'op1': '>', 'val1': '150', 'exp': False},
-        {'col': 'LIPIDOGRAMA.LDL2', 'op1': '>', 'val1': '130', 'exp': False},
-        {'col': 'COLESTEROL TOTAL E FRACOES.LDLD', 'op1': '>', 'val1': '130', 'exp': False},
-        {'col': 'LIPIDOGRAMA.HDL5', 'op1': '>', 'val1': '80', 'exp': False},
-        {'col': 'COLESTEROL TOTAL E FRACOES.HDL5', 'op1': '>', 'val1': '80', 'exp': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'CAPA.IST', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '50', 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ferritina.FERRI', 'p_op1': '<', 'p_val1': '15', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '600', 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Ultra-PCR.ULTRAPCR', 'p_op1': '>', 'p_val1': '5', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Creatinina.CRE', 'p_op1': '>', 'p_val1': '1,5', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Creatinina.eTGF2021', 'p_op1': '<', 'p_val1': '60', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'GLICOSE.GLI', 'p_op1': '<', 'p_val1': '65', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '200', 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'HBGLI.HBGLI', 'p_op1': '>', 'p_val1': '6,5', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'TSH.TSH', 'p_op1': '<', 'p_val1': '0,2', 'p_expand': True, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '10', 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'TGP.TGP', 'p_op1': '>', 'p_val1': '123', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'BTF.BTBTF', 'p_op1': '>', 'p_val1': '2,4', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'FALC.FALC', 'p_op1': '>', 'p_val1': '193,5', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'GGT.GGT', 'p_op1': '>', 'p_val1': '180', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'LIPIDOGRAMA.COL2', 'p_op1': '>', 'p_val1': '190', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'COLESTEROL TOTAL E FRACOES.COL2', 'p_op1': '>', 'p_val1': '190', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'LIPIDOGRAMA.TRI2', 'p_op1': '>', 'p_val1': '150', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'COLESTEROL TOTAL E FRACOES.TRI2', 'p_op1': '>', 'p_val1': '150', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'LIPIDOGRAMA.LDL2', 'p_op1': '>', 'p_val1': '130', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'COLESTEROL TOTAL E FRACOES.LDLD', 'p_op1': '>', 'p_val1': '130', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'LIPIDOGRAMA.HDL5', 'p_op1': '>', 'p_val1': '80', 'p_expand': False, 'c_check': False},
+    {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'COLESTEROL TOTAL E FRACOES.HDL5', 'p_op1': '>', 'p_val1': '80', 'p_expand': False, 'c_check': False},
 ]
 
 # --- CLASSES DE PROCESSAMENTO ---
@@ -726,4 +726,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
