@@ -3,11 +3,7 @@ pandas
 openpyxl
 xlrd
 Pillow
-streamlit
 streamlit-authenticator
 pyyaml
 altair<5
 tzdata
-zipfile
-io
-
