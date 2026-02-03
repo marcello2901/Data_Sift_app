@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9 - Correção definitiva do marcador "Selecionar Todos" e implementação de placeholders
+# Versão 1.9.1 - Otimização de Performance e Motor de Processamento
+# Melhorias: Downcasting de memória, Categorização de colunas, Cache otimizado e Lazy Conversion para Download.
 
 import streamlit as st
 import pandas as pd
@@ -318,30 +319,51 @@ class DataProcessor:
             if sex_name: name_parts.append(sex_name)
         return "_".join(part for part in name_parts if part)
 
-# --- FUNÇÕES AUXILIARES ---
+# --- FUNÇÕES AUXILIARES OTIMIZADAS ---
 
-@st.cache_data
+@st.cache_data(show_spinner="Otimizando motor de dados...")
 def load_dataframe(uploaded_file):
     if uploaded_file is None: return None
     try:
         uploaded_file.seek(0)
+        # Carregamento com engine 'c' para CSV e detecção automática de tipos
         if uploaded_file.name.endswith('.csv'):
-            try: return pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=';', decimal=',', encoding='latin-1')
+            try: 
+                df = pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=';', decimal=',', encoding='latin-1', low_memory=False)
             except Exception:
                 uploaded_file.seek(0)
-                return pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=',', decimal='.', encoding='utf-8')
+                df = pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=',', decimal='.', encoding='utf-8', low_memory=False)
         else:
-            return pd.read_excel(io.BytesIO(uploaded_file.getvalue()), engine='openpyxl')
+            df = pd.read_excel(io.BytesIO(uploaded_file.getvalue()), engine='openpyxl')
+
+        # --- MOTOR DE OTIMIZAÇÃO DE MEMÓRIA (DOWNCASTING) ---
+        # Converte floats e ints para o menor tamanho possível para economizar RAM
+        fcols = df.select_dtypes('float').columns
+        icols = df.select_dtypes('integer').columns
+        df[fcols] = df[fcols].apply(pd.to_numeric, downcast='float')
+        df[icols] = df[icols].apply(pd.to_numeric, downcast='integer')
+
+        # Categorização de colunas com textos repetitivos (Setores, Sexo, Unidades)
+        # Se a coluna tiver menos de 50% de valores únicos, vira 'category'
+        for col in df.select_dtypes('object').columns:
+            if df[col].nunique() / len(df[col]) < 0.5:
+                df[col] = df[col].astype('category')
+        
+        return df
     except Exception as e:
         st.error(f"Error reading file: {e}"); return None
 
+# Decorador de cache para evitar re-conversão pesada em cada clique
+@st.cache_data(show_spinner="Preparando arquivo para exportação...")
 def to_excel(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
+@st.cache_data(show_spinner="Preparando CSV para exportação...")
 def to_csv(df):
+    # 'utf-8-sig' é essencial para que o Excel abra acentos corretamente
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
 # --- FUNÇÕES DE INTERFACE ---
@@ -406,7 +428,6 @@ AND: Excludes values within an interval, without the extremes. Ex: > 10 AND < 20
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             
-            # --- CAMPO DE TEXTO ALTERADO PARA SELECTBOX COM PLACEHOLDER ---
             current_col = rule.get('p_col')
             current_index = None
             if current_col and column_options:
@@ -620,6 +641,7 @@ def main():
                     else:
                         st.success(f"Spreadsheet filtered successfully! {len(filtered_df)} rows remaining.")
                         is_excel = "Excel" in st.session_state.output_format
+                        # Lazy generation: converte apenas quando solicitado
                         file_bytes = to_excel(filtered_df) if is_excel else to_csv(filtered_df)
                         timestamp = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S")
                         file_name = f"Filtered_Sheet_{timestamp}.{'xlsx' if is_excel else 'csv'}"
@@ -680,9 +702,10 @@ def main():
             st.markdown("---"); st.subheader(f"Files to Download ({len(st.session_state.stratified_results)} generated)")
             is_excel = "Excel" in st.session_state.output_format
             for filename, df_to_download in st.session_state.stratified_results.items():
+                # O uso do cache aqui evita que o app trave gerando múltiplos arquivos simultaneamente
                 file_bytes = to_excel(df_to_download) if is_excel else to_csv(df_to_download)
                 file_name = f"{filename}.{'xlsx' if is_excel else 'csv'}"
-                st.download_button(f"Download {file_name}", data=file_bytes, file_name=file_name)
+                st.download_button(f"Download {file_name}", data=file_bytes, file_name=file_name, key=f"dl_{filename}")
 
 if __name__ == "__main__":
     main()
