@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.1 - Otimização de Performance e Motor de Processamento
-# Melhorias: Downcasting de memória, Categorização de colunas, Cache otimizado e Lazy Conversion para Download.
+# Versão 1.9.2 - Atualização: Entrada de coluna manual (sem selectbox)
+# Melhorias: Nome das colunas pré-setado via text_input para flexibilidade total.
 
 import streamlit as st
 import pandas as pd
@@ -343,7 +343,6 @@ def load_dataframe(uploaded_file):
     if uploaded_file is None: return None
     try:
         uploaded_file.seek(0)
-        # Carregamento com engine 'c' para CSV e detecção automática de tipos
         if uploaded_file.name.endswith('.csv'):
             try: 
                 df = pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=';', decimal=',', encoding='latin-1', low_memory=False)
@@ -353,15 +352,11 @@ def load_dataframe(uploaded_file):
         else:
             df = pd.read_excel(io.BytesIO(uploaded_file.getvalue()), engine='openpyxl')
 
-        # --- MOTOR DE OTIMIZAÇÃO DE MEMÓRIA (DOWNCASTING) ---
-        # Converte floats e ints para o menor tamanho possível para economizar RAM
         fcols = df.select_dtypes('float').columns
         icols = df.select_dtypes('integer').columns
         df[fcols] = df[fcols].apply(pd.to_numeric, downcast='float')
         df[icols] = df[icols].apply(pd.to_numeric, downcast='integer')
 
-        # Categorização de colunas com textos repetitivos (Setores, Sexo, Unidades)
-        # Se a coluna tiver menos de 50% de valores únicos, vira 'category'
         for col in df.select_dtypes('object').columns:
             if df[col].nunique() / len(df[col]) < 0.5:
                 df[col] = df[col].astype('category')
@@ -370,7 +365,6 @@ def load_dataframe(uploaded_file):
     except Exception as e:
         st.error(f"Error reading file: {e}"); return None
 
-# Decorador de cache para evitar re-conversão pesada em cada clique
 @st.cache_data(show_spinner="Preparando arquivo para exportação...")
 def to_excel(df):
     output = io.BytesIO()
@@ -380,7 +374,6 @@ def to_excel(df):
 
 @st.cache_data(show_spinner="Preparando CSV para exportação...")
 def to_csv(df):
-    # 'utf-8-sig' é essencial para que o Excel abra acentos corretamente
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
 # --- FUNÇÕES DE INTERFACE ---
@@ -419,21 +412,20 @@ def draw_filter_rules(sex_column_values, column_options):
         help="Select/Deselect all rules"
     )
     
-    header_cols[1].markdown("**Column** <span title='Select the column to apply the filter to.'>&#9432;</span>", unsafe_allow_html=True)
-    header_cols[2].markdown("**Operator** <span title='Use comparison operators to define the first filter.'>&#9432;</span>", unsafe_allow_html=True)
-    header_cols[3].markdown("**Value** <span title='Enter the value you want to exclude from the data.'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[1].markdown("**Column** <span title='Type the column name exactly as in the sheet. For multiple columns, separate with ;'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[2].markdown("**Operator**", unsafe_allow_html=True)
+    header_cols[3].markdown("**Value**", unsafe_allow_html=True)
     
     tooltip_text = """Select another operator to define an interval.
 How to use:
-BETWEEN: Excludes values within the interval (inclusive). Ex: BETWEEN 10 and 20 removes everything from 10 to 20.
-OR: Excludes values outside an interval. Use to keep the data in between. Ex: < 10 OR > 20 removes everything less than 10 and greater than 20.
-AND: Excludes values within an interval, without the extremes. Ex: > 10 AND < 20 removes from 11 to 19 (keeps the values 10 and 20).
-"""
+BETWEEN: Excludes values within the interval (inclusive).
+OR: Excludes values outside an interval.
+AND: Excludes values within an interval, without the extremes."""
     tooltip_text_html = tooltip_text.replace('\n', '&#10;')
     header_cols[5].markdown(f"**Compound Logic** <span title='{tooltip_text_html}'>&#9432;</span>", unsafe_allow_html=True)
     
-    header_cols[6].markdown("**Condition** <span title='Restricts the main rule to a specific subgroup. The exclusion will only affect rows that also satisfy the age and/or sex/gender criteria defined here.'>&#9432;</span>", unsafe_allow_html=True)
-    header_cols[7].markdown("**Actions** <span title='Use to duplicate or delete a rule.'>&#9432;</span>", unsafe_allow_html=True)
+    header_cols[6].markdown("**Condition**", unsafe_allow_html=True)
+    header_cols[7].markdown("**Actions**", unsafe_allow_html=True)
     st.markdown("<hr style='margin-top: -0.5rem; margin-bottom: 0.5rem;'>", unsafe_allow_html=True)
 
     ops_main = ["", ">", "<", "=", "Not equal to", "≥", "≤"]
@@ -445,21 +437,13 @@ AND: Excludes values within an interval, without the extremes. Ex: > 10 AND < 20
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
             rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             
-            current_col = rule.get('p_col')
-            current_index = None
-            if current_col and column_options:
-                try:
-                    current_index = column_options.index(current_col)
-                except ValueError:
-                    current_index = None 
-            
-            rule['p_col'] = cols[1].selectbox(
+            # --- ALTERAÇÃO: TEXT_INPUT EM VEZ DE SELECTBOX ---
+            rule['p_col'] = cols[1].text_input(
                 "Column", 
-                options=column_options, 
-                index=current_index,
-                placeholder="Select column", 
+                value=rule.get('p_col', ''), 
                 key=f"p_col_{rule['id']}", 
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                placeholder="Ex: Exam.COL"
             )
             
             rule['p_op1'] = cols[2].selectbox("Operator 1", ops_main, index=ops_main.index(rule.get('p_op1', '=')) if rule.get('p_op1') in ops_main else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
@@ -498,11 +482,7 @@ AND: Excludes values within an interval, without the extremes. Ex: > 10 AND < 20
                             rule['c_idade_op1'] = age_cols[0].selectbox("Age Op 1", ops_age, index=ops_age.index(rule.get('c_idade_op1','>')) if rule.get('c_idade_op1') in ops_age else 0, key=f"c_idade_op1_{rule['id']}", label_visibility="collapsed")
                             rule['c_idade_val1'] = age_cols[1].text_input("Age Val 1", value=rule.get('c_idade_val1',''), key=f"c_idade_val1_{rule['id']}", label_visibility="collapsed")
                             
-                            centered_and_html = """
-                            <div style="display: flex; justify-content: center; align-items: center; height: 38px;">
-                                AND
-                            </div>
-                            """
+                            centered_and_html = """<div style="display: flex; justify-content: center; align-items: center; height: 38px;">AND</div>"""
                             age_cols[2].markdown(centered_and_html, unsafe_allow_html=True)
                             
                             rule['c_idade_op2'] = age_cols[3].selectbox("Age Op 2", ops_age, index=ops_age.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_age else 0, key=f"c_idade_op2_{rule['id']}", label_visibility="collapsed")
@@ -515,17 +495,10 @@ AND: Excludes values within an interval, without the extremes. Ex: > 10 AND < 20
                             current_sex = rule.get('c_sexo_val')
                             sex_index = None
                             if current_sex and sex_options:
-                                try:
-                                    sex_index = sex_options.index(current_sex)
-                                except ValueError:
-                                    sex_index = None
+                                try: sex_index = sex_options.index(current_sex)
+                                except ValueError: sex_index = None
                             
-                            rule['c_sexo_val'] = st.selectbox("Sex Value", 
-                                options=sex_options, 
-                                index=sex_index,
-                                placeholder="Select value",
-                                key=f"c_sexo_val_{rule['id']}", 
-                                label_visibility="collapsed")
+                            rule['c_sexo_val'] = st.selectbox("Sex Value", options=sex_options, index=sex_index, placeholder="Select value", key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
         st.markdown("---")
 
 def draw_stratum_rules():
@@ -585,21 +558,9 @@ def main():
         
         c1, c2, c3 = st.columns(3)
         with c1: 
-            st.selectbox(
-                "Age Column", 
-                options=column_options, 
-                key="col_idade", 
-                index=None, 
-                placeholder="Select the Age column"
-            )
+            st.selectbox("Age Column", options=column_options, key="col_idade", index=None, placeholder="Select the Age column")
         with c2: 
-            st.selectbox(
-                "Sex/Gender Column", 
-                options=column_options, 
-                key="col_sexo", 
-                index=None, 
-                placeholder="Select the Sex/Gender column"
-            )
+            st.selectbox("Sex/Gender Column", options=column_options, key="col_sexo", index=None, placeholder="Select the Sex/Gender column")
         with c3: 
             st.selectbox("Output Format", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
 
@@ -624,7 +585,6 @@ def main():
                     age_col = df[st.session_state.col_idade].dropna()
                     numeric_ages = pd.to_numeric(age_col, errors='coerce')
                     non_numeric_ratio = numeric_ages.isna().sum() / len(age_col) if len(age_col) > 0 else 0
-
                     if non_numeric_ratio > 0.2:
                         st.warning(f"A coluna '{st.session_state.col_idade}' não parece conter dados de idade válidos. As funções de idade estão desativadas.")
                         st.session_state.age_column_is_valid = False
@@ -658,7 +618,6 @@ def main():
                     else:
                         st.success(f"Spreadsheet filtered successfully! {len(filtered_df)} rows remaining.")
                         is_excel = "Excel" in st.session_state.output_format
-                        # Lazy generation: converte apenas quando solicitado
                         file_bytes = to_excel(filtered_df) if is_excel else to_csv(filtered_df)
                         timestamp = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S")
                         file_name = f"Filtered_Sheet_{timestamp}.{'xlsx' if is_excel else 'csv'}"
@@ -669,7 +628,6 @@ def main():
 
     with tab_stratify:
         st.header("Stratification Options by Sex/Gender")
-        
         if not st.session_state.sex_column_is_valid:
             st.info("Select a valid 'Sex/Gender Column' in Global Settings.")
         elif not sex_column_values:
@@ -706,7 +664,6 @@ def main():
                         processor = get_data_processor()
                         age_rules = [r for r in st.session_state.stratum_rules if r.get('val1')]
                         sex_rules = [{'value': gender_val, 'name': str(gender_val)} for gender_val, is_selected in st.session_state.get('strat_gender_selection', {}).items() if is_selected]
-                        
                         strata_config = {'ages': age_rules, 'sexes': sex_rules}
                         global_config = {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}
                         stratified_dfs = processor.apply_stratification(df.copy(), strata_config, global_config, progress_bar)
@@ -719,12 +676,9 @@ def main():
             st.markdown("---"); st.subheader(f"Files to Download ({len(st.session_state.stratified_results)} generated)")
             is_excel = "Excel" in st.session_state.output_format
             for filename, df_to_download in st.session_state.stratified_results.items():
-                # O uso do cache aqui evita que o app trave gerando múltiplos arquivos simultaneamente
                 file_bytes = to_excel(df_to_download) if is_excel else to_csv(df_to_download)
                 file_name = f"{filename}.{'xlsx' if is_excel else 'csv'}"
                 st.download_button(f"Download {file_name}", data=file_bytes, file_name=file_name, key=f"dl_{filename}")
 
 if __name__ == "__main__":
     main()
-
-
