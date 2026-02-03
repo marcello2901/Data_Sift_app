@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.3 - Atualização: Suporte a arquivos ZIP
-# Melhorias: Leitura de arquivos compactados mantendo otimização de memória.
+# Versão 1.9.4 - Atualização: Master Checkbox e Suporte a ZIP
+# Melhorias: Implementação de "Selecionar Todos" para as Exclusion Rules.
 
 import streamlit as st
 import pandas as pd
@@ -355,7 +355,6 @@ def load_dataframe(uploaded_file):
         # --- LÓGICA DE TRATAMENTO DE ZIP ---
         if file_name.endswith('.zip'):
             with zipfile.ZipFile(uploaded_file) as z:
-                # Busca por arquivos CSV ou Excel válidos dentro do ZIP
                 valid_files = [f for f in z.namelist() if not f.startswith('__MACOSX/') and 
                                (f.lower().endswith('.csv') or f.lower().endswith(('.xlsx', '.xls')))]
                 
@@ -363,7 +362,6 @@ def load_dataframe(uploaded_file):
                     st.error("ZIP does not contain valid CSV or Excel files.")
                     return None
                 
-                # Abre o primeiro arquivo válido encontrado
                 with z.open(valid_files[0]) as f:
                     content = f.read()
                     inner_filename = valid_files[0].lower()
@@ -388,7 +386,6 @@ def load_dataframe(uploaded_file):
             uploaded_file.seek(0)
             df = pd.read_excel(io.BytesIO(uploaded_file.getvalue()), engine='openpyxl')
 
-        # Manutenção da otimização funcional do código original
         fcols = df.select_dtypes('float').columns
         icols = df.select_dtypes('integer').columns
         df[fcols] = df[fcols].apply(pd.to_numeric, downcast='float')
@@ -416,7 +413,7 @@ def to_csv(df):
 # --- FUNÇÕES DE INTERFACE ---
 
 def handle_select_all():
-    """Callback para sincronizar o estado de todas as regras com o checkbox mestre."""
+    """Lógica para marcar/desmarcar todos os filtros."""
     new_state = st.session_state['select_all_master_checkbox']
     for rule in st.session_state.filter_rules:
         rule['p_check'] = new_state
@@ -428,38 +425,30 @@ def draw_filter_rules(sex_column_values, column_options):
             border: 1px solid rgba(255, 75, 75, 0.15) !important;
             border-radius: 0.25rem;
         }
-        div[data-baseweb="select"] input::placeholder {
-            color: black !important;
-            opacity: 0.4 !important;
-        }
     </style>""", unsafe_allow_html=True)
     
     header_cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium")
     
-    # Determina o valor inicial do master checkbox com base no estado atual das regras
+    # Verifica o estado atual para ver se a master checkbox deve estar marcada
     if st.session_state.filter_rules:
         all_checked = all(rule.get('p_check', True) for rule in st.session_state.filter_rules)
     else:
         all_checked = False
 
+    # MASTER CHECKBOX (A que você inspecionou)
     header_cols[0].checkbox(
         "Select/Deselect all",
         value=all_checked,
         key='select_all_master_checkbox', 
         on_change=handle_select_all,   
-        label_visibility="collapsed",
-        help="Select/Deselect all rules"
+        label_visibility="collapsed"
     )
     
     header_cols[1].markdown("**Column** <span title='Type the column name exactly as in the sheet. For multiple columns, separate with ;'>&#9432;</span>", unsafe_allow_html=True)
     header_cols[2].markdown("**Operator**", unsafe_allow_html=True)
     header_cols[3].markdown("**Value**", unsafe_allow_html=True)
     
-    tooltip_text = """Select another operator to define an interval.
-How to use:
-BETWEEN: Excludes values within the interval (inclusive).
-OR: Excludes values outside an interval.
-AND: Excludes values within an interval, without the extremes."""
+    tooltip_text = "Select another operator to define an interval.\nBETWEEN: Excludes values within the interval.\nOR: Excludes values outside.\nAND: Excludes values within, without extremes."
     tooltip_text_html = tooltip_text.replace('\n', '&#10;')
     header_cols[5].markdown(f"**Compound Logic** <span title='{tooltip_text_html}'>&#9432;</span>", unsafe_allow_html=True)
     
@@ -474,14 +463,7 @@ AND: Excludes values within an interval, without the extremes."""
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
-            
-            # Aqui garantimos que o checkbox individual use o estado persistido no session_state
-            rule['p_check'] = cols[0].checkbox(
-                " ", 
-                value=rule.get('p_check', True), 
-                key=f"p_check_{rule['id']}", 
-                label_visibility="collapsed"
-            )
+            rule['p_check'] = cols[0].checkbox(" ", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
             
             rule['p_col'] = cols[1].text_input(
                 "Column", 
@@ -519,17 +501,13 @@ AND: Excludes values within an interval, without the extremes."""
                 with st.container():
                     cond_cols = st.columns([0.55, 0.5, 1, 3, 1, 3])
                     cond_cols[1].markdown("↳")
-                    
                     rule['c_idade_check'] = cond_cols[2].checkbox("Age", value=rule.get('c_idade_check', False), key=f"c_idade_check_{rule['id']}")
                     with cond_cols[3]:
                         if rule['c_idade_check']:
                             age_cols = st.columns([2, 2, 1, 2, 2])
                             rule['c_idade_op1'] = age_cols[0].selectbox("Age Op 1", ops_age, index=ops_age.index(rule.get('c_idade_op1','>')) if rule.get('c_idade_op1') in ops_age else 0, key=f"c_idade_op1_{rule['id']}", label_visibility="collapsed")
                             rule['c_idade_val1'] = age_cols[1].text_input("Age Val 1", value=rule.get('c_idade_val1',''), key=f"c_idade_val1_{rule['id']}", label_visibility="collapsed")
-                            
-                            centered_and_html = """<div style="display: flex; justify-content: center; align-items: center; height: 38px;">AND</div>"""
-                            age_cols[2].markdown(centered_and_html, unsafe_allow_html=True)
-                            
+                            age_cols[2].markdown("""<div style="display: flex; justify-content: center; align-items: center; height: 38px;">AND</div>""", unsafe_allow_html=True)
                             rule['c_idade_op2'] = age_cols[3].selectbox("Age Op 2", ops_age, index=ops_age.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_age else 0, key=f"c_idade_op2_{rule['id']}", label_visibility="collapsed")
                             rule['c_idade_val2'] = age_cols[4].text_input("Age Val 2", value=rule.get('c_idade_val2',''), key=f"c_idade_val2_{rule['id']}", label_visibility="collapsed")
                     
@@ -538,11 +516,7 @@ AND: Excludes values within an interval, without the extremes."""
                         if rule['c_sexo_check']:
                             sex_options = [v for v in sex_column_values if v]
                             current_sex = rule.get('c_sexo_val')
-                            sex_index = None
-                            if current_sex and sex_options:
-                                try: sex_index = sex_options.index(current_sex)
-                                except ValueError: sex_index = None
-                            
+                            sex_index = sex_options.index(current_sex) if current_sex in sex_options else None
                             rule['c_sexo_val'] = st.selectbox("Sex Value", options=sex_options, index=sex_index, placeholder="Select value", key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
         st.markdown("---")
 
@@ -554,13 +528,11 @@ def draw_stratum_rules():
         with st.container():
             cols = st.columns([2, 1, 1, 0.5, 1, 1, 1])
             cols[0].write(f"**Age Range {i+1}:**")
-            
             stratum_rule['op1'] = cols[1].selectbox("Operator 1", ops_stratum, index=ops_stratum.index(stratum_rule.get('op1', '')) if stratum_rule.get('op1') in ops_stratum else 0, key=f"s_op1_{stratum_rule['id']}", label_visibility="collapsed")
             stratum_rule['val1'] = cols[2].text_input("Value 1", value=stratum_rule.get('val1', ''), key=f"s_val1_{stratum_rule['id']}", label_visibility="collapsed")
             cols[3].markdown("<p style='text-align: center; margin-top: 25px;'>AND</p>", unsafe_allow_html=True)
             stratum_rule['op2'] = cols[4].selectbox("Operator 2", ops_stratum, index=ops_stratum.index(stratum_rule.get('op2', '')) if stratum_rule.get('op2') in ops_stratum else 0, key=f"s_op2_{stratum_rule['id']}", label_visibility="collapsed")
             stratum_rule['val2'] = cols[5].text_input("Value 2", value=stratum_rule.get('val2', ''), key=f"s_val2_{stratum_rule['id']}", label_visibility="collapsed")
-            
             if cols[6].button("X", key=f"del_stratum_{stratum_rule['id']}"):
                 if len(st.session_state.stratum_rules) > 1:
                     st.session_state.stratum_rules.pop(i)
@@ -573,11 +545,11 @@ def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
     if not st.session_state.lgpd_accepted:
         st.title("Welcome to Data Sift!")
-        st.markdown("This program is designed to optimize your work with large volumes of data, offering features to exclude data from spreadsheets using filters and to stratify the filtered spreadsheet. Please read the terms below to proceed.")
+        st.markdown("This program is designed to optimize your work with large volumes of data. Please read the terms below.")
         st.divider()
         st.header("Terms of Use and Data Protection Compliance")
         st.markdown(GDPR_TERMS) 
-        accepted = st.checkbox("By checking this box, I confirm that the data provided is anonymized and contains no sensitive personal data.")
+        accepted = st.checkbox("By checking this box, I confirm that the data provided is anonymized.")
         if st.button("Continue", disabled=not accepted):
             st.session_state.lgpd_accepted = True
             st.rerun()
@@ -598,16 +570,11 @@ def main():
     with st.expander("1. Global Settings", expanded=True):
         uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls', 'zip'])
         df = load_dataframe(uploaded_file)
-        
         column_options = df.columns.tolist() if df is not None else []
-        
         c1, c2, c3 = st.columns(3)
-        with c1: 
-            st.selectbox("Age Column", options=column_options, key="col_idade", index=None, placeholder="Select the Age column")
-        with c2: 
-            st.selectbox("Sex/Gender Column", options=column_options, key="col_sexo", index=None, placeholder="Select the Sex/Gender column")
-        with c3: 
-            st.selectbox("Output Format", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
+        with c1: st.selectbox("Age Column", options=column_options, key="col_idade", index=None, placeholder="Select the Age column")
+        with c2: st.selectbox("Sex/Gender Column", options=column_options, key="col_sexo", index=None, placeholder="Select the Sex/Gender column")
+        with c3: st.selectbox("Output Format", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
 
         st.session_state.sex_column_is_valid = True
         st.session_state.age_column_is_valid = True
@@ -618,32 +585,26 @@ def main():
                 try:
                     unique_sex_values = df[st.session_state.col_sexo].dropna().unique()
                     if len(unique_sex_values) > 10:
-                        st.warning(f"A coluna '{st.session_state.col_sexo}' possui {len(unique_sex_values)} valores únicos. A estratificação por gênero foi desativada.")
+                        st.warning(f"Coluna '{st.session_state.col_sexo}' possui muitos valores únicos.")
                         st.session_state.sex_column_is_valid = False
                     else:
                         sex_column_values = [""] + list(unique_sex_values)
-                except KeyError:
-                    st.warning(f"Coluna '{st.session_state.col_sexo}' não encontrada."); st.session_state.sex_column_is_valid = False
+                except KeyError: st.session_state.sex_column_is_valid = False
 
             if st.session_state.col_idade:
                 try:
                     age_col = df[st.session_state.col_idade].dropna()
                     numeric_ages = pd.to_numeric(age_col, errors='coerce')
-                    non_numeric_ratio = numeric_ages.isna().sum() / len(age_col) if len(age_col) > 0 else 0
-                    if non_numeric_ratio > 0.2:
-                        st.warning(f"A coluna '{st.session_state.col_idade}' não parece conter dados de idade válidos. As funções de idade estão desativadas.")
+                    if (numeric_ages.isna().sum() / len(age_col) if len(age_col) > 0 else 0) > 0.2:
                         st.session_state.age_column_is_valid = False
-                except KeyError:
-                    st.warning(f"Coluna '{st.session_state.col_idade}' não encontrada."); st.session_state.age_column_is_valid = False
+                except KeyError: st.session_state.age_column_is_valid = False
 
     is_ready_for_processing = st.session_state.age_column_is_valid and st.session_state.sex_column_is_valid
-    
     tab_filter, tab_stratify = st.tabs(["2. Filter Tool", "3. Stratification Tool"])
 
     with tab_filter:
         st.header("Exclusion Rules")
         draw_filter_rules(sex_column_values, column_options)
-        
         if st.button("Add New Filter Rule"):
             st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''})
             st.rerun()
@@ -651,36 +612,25 @@ def main():
         if st.button("Generate Filtered Sheet", type="primary", use_container_width=True, disabled=not is_ready_for_processing):
             if df is None: st.error("Please upload a spreadsheet first.")
             else:
-                with st.spinner("Applying filters... Please wait."):
+                with st.spinner("Applying filters..."):
                     progress_bar = st.progress(0, text="Initializing...")
                     processor = get_data_processor()
                     global_config = {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}
                     filtered_df = processor.apply_filters(df, st.session_state.filter_rules, global_config, progress_bar)
-                    
-                    if filtered_df.empty:
-                        st.success("Filtros aplicados com sucesso! Nenhuma linha restante.")
-                        if 'filtered_result' in st.session_state: del st.session_state['filtered_result']
-                    else:
-                        st.success(f"Spreadsheet filtered successfully! {len(filtered_df)} rows remaining.")
+                    if not filtered_df.empty:
                         is_excel = "Excel" in st.session_state.output_format
                         file_bytes = to_excel(filtered_df) if is_excel else to_csv(filtered_df)
                         timestamp = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S")
-                        file_name = f"Filtered_Sheet_{timestamp}.{'xlsx' if is_excel else 'csv'}"
-                        st.session_state.filtered_result = (file_bytes, file_name)
+                        st.session_state.filtered_result = (file_bytes, f"Filtered_Sheet_{timestamp}.{'xlsx' if is_excel else 'csv'}")
+                    else: st.success("No rows remaining.")
 
         if 'filtered_result' in st.session_state:
             st.download_button("Download Filtered Sheet", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True)
 
     with tab_stratify:
-        st.header("Stratification Options by Sex/Gender")
-        if not st.session_state.sex_column_is_valid:
-            st.info("Select a valid 'Sex/Gender Column' in Global Settings.")
-        elif not sex_column_values:
-            st.info("Upload a spreadsheet and select the 'Sex/Gender Column' in Global Settings.")
-        else:
-            if 'strat_gender_selection' not in st.session_state:
-                st.session_state.strat_gender_selection = {val: True for val in sex_column_values if val}
-            
+        st.header("Stratification Options")
+        if st.session_state.sex_column_is_valid and sex_column_values:
+            if 'strat_gender_selection' not in st.session_state: st.session_state.strat_gender_selection = {val: True for val in sex_column_values if val}
             cols = st.columns(min(len(sex_column_values), 5))
             col_idx = 0
             for gender_val in sex_column_values:
@@ -699,31 +649,28 @@ def main():
             st.rerun()
 
         if st.session_state.get('confirm_stratify', False):
-            st.warning("Do you confirm that the selected spreadsheet is the FILTERED version?")
+            st.warning("Do you confirm this is the FILTERED version?")
             c1, c2 = st.columns(2)
-            if c1.button("Yes, continue", use_container_width=True):
-                if df is None: st.error("Please upload a spreadsheet first.")
-                else:
+            if c1.button("Yes, continue"):
+                if df is not None:
                     with st.spinner("Generating strata..."):
                         progress_bar = st.progress(0, text="Initializing...")
                         processor = get_data_processor()
                         age_rules = [r for r in st.session_state.stratum_rules if r.get('val1')]
                         sex_rules = [{'value': gender_val, 'name': str(gender_val)} for gender_val, is_selected in st.session_state.get('strat_gender_selection', {}).items() if is_selected]
-                        strata_config = {'ages': age_rules, 'sexes': sex_rules}
-                        global_config = {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}
-                        stratified_dfs = processor.apply_stratification(df.copy(), strata_config, global_config, progress_bar)
-                        st.session_state.stratified_results = stratified_dfs
-                st.session_state.confirm_stratify = False; st.rerun()
-            if c2.button("No, cancel", use_container_width=True):
-                st.session_state.confirm_stratify = False; st.rerun()
+                        st.session_state.stratified_results = processor.apply_stratification(df.copy(), {'ages': age_rules, 'sexes': sex_rules}, {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}, progress_bar)
+                st.session_state.confirm_stratify = False
+                st.rerun()
+            if c2.button("No, cancel"):
+                st.session_state.confirm_stratify = False
+                st.rerun()
 
         if st.session_state.get('stratified_results'):
-            st.markdown("---"); st.subheader(f"Files to Download ({len(st.session_state.stratified_results)} generated)")
+            st.markdown("---"); st.subheader(f"Files ({len(st.session_state.stratified_results)} generated)")
             is_excel = "Excel" in st.session_state.output_format
             for filename, df_to_download in st.session_state.stratified_results.items():
                 file_bytes = to_excel(df_to_download) if is_excel else to_csv(df_to_download)
-                file_name = f"{filename}.{'xlsx' if is_excel else 'csv'}"
-                st.download_button(f"Download {file_name}", data=file_bytes, file_name=file_name, key=f"dl_{filename}")
+                st.download_button(f"Download {filename}", data=file_bytes, file_name=f"{filename}.{'xlsx' if is_excel else 'csv'}", key=f"dl_{filename}")
 
 if __name__ == "__main__":
     main()
