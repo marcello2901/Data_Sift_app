@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 
-# Versão 1.9.5 - Atualização: Correção de Estado de Download
-# Melhorias: Limpeza automática de resultados ao trocar de arquivo (Reset on Upload).
+# Versão 2.1.0 - Atualização: Otimização com Motor SQL DuckDB e Preservação de Precisão
+# Melhorias: Processamento de dados extremamente rápido via DuckDB para não travar o Streamlit.
+# Correção: Remoção do downcasting numérico para manter a precisão original dos dados.
 
 import streamlit as st
 import pandas as pd
@@ -10,12 +11,29 @@ import io
 import uuid
 import copy
 import zipfile
+import duckdb
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Optional
+import tempfile
+import os
+import shutil
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Data Sift")
+st.markdown("""
+    <style>
+        /* Remove o esmaecimento da tela ao clicar nos filtros */
+        [data-testid="stAppViewBlockContainer"] {
+            opacity: 1 !important;
+            transition: none !important;
+        }
+        /* Esconde o aviso "Running..." no canto superior direito */
+        [data-testid="stStatusWidget"] {
+            visibility: hidden;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- CONSTANTES E DADOS ---
 GDPR_TERMS = """
@@ -121,123 +139,134 @@ DEFAULT_FILTERS = [
     {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.#HGB', 'p_op1': '<', 'p_val1': '7', 'p_expand': False, 'c_check': False},
 ]
 
-# --- CLASSES DE PROCESSAMENTO ---
+# --- CLASSES DE PROCESSAMENTO (DUCKDB OTIMIZADO) ---
 
 @st.cache_resource
 def get_data_processor():
     return DataProcessor()
 
 class DataProcessor:
-    OPERATOR_MAP = {'=': '==', 'Não é igual a': '!=', '≥': '>=', '≤': '<=', 'is equal to': '==', 'Not equal to': '!='}
+    OPERATOR_MAP = {'=': '=', '==': '=', 'Não é igual a': '!=', '≥': '>=', '≤': '<=', 'is equal to': '=', 'Not equal to': '!='}
 
-    def _safe_to_numeric(self, series: pd.Series) -> pd.Series:
-        if pd.api.types.is_numeric_dtype(series): return series
-        return pd.to_numeric(series.astype(str).str.replace(',', '.', regex=False), errors='coerce')
+    def _build_single_sql_cond(self, col: str, op: str, val: Any) -> str:
+        """Gera a cláusula SQL condicional para um único valor."""
+        op = self.OPERATOR_MAP.get(op, op)
 
-    def _build_single_mask(self, series: pd.Series, op: str, val: Any) -> pd.Series:
-        if isinstance(val, str):
-            val_lower_strip = val.lower().strip()
-            series_lower_strip = series.astype(str).str.strip().str.lower()
-            if op == '==': return series_lower_strip == val_lower_strip
-            elif op == '!=': return series_lower_strip != val_lower_strip
-        return eval(f"series {op} val")
+        # Trata o cenário de vazio ('empty')
+        if str(val).lower() == 'empty':
+            if op in ('=', '=='): return f"({col} IS NULL OR TRIM(CAST({col} AS VARCHAR)) = '')"
+            if op == '!=': return f"({col} IS NOT NULL AND TRIM(CAST({col} AS VARCHAR)) != '')"
+            return "FALSE"
 
-    def _create_main_mask(self, df: pd.DataFrame, f: Dict, col: str) -> pd.Series:
-        op1_ui, val1 = f.get('p_op1'), f.get('p_val1')
-        op1 = self.OPERATOR_MAP.get(op1_ui, op1_ui)
-
-        if val1 and val1.lower() == 'empty':
-            if op1 == '==': return df[col].isna() | (df[col].astype(str).str.strip() == '')
-            if op1 == '!=': return df[col].notna() & (df[col].astype(str).str.strip() != '')
-            return pd.Series([False] * len(df), index=df.index)
-
+        # Tenta interpretar como número (permite comparar strings que na verdade são números na planilha)
         try:
-            if f.get('p_expand'):
+            v_num = float(str(val).replace(',', '.'))
+            safe_cast = f"TRY_CAST(REPLACE(CAST({col} AS VARCHAR), ',', '.') AS DOUBLE)"
+            return f"({safe_cast} IS NOT NULL AND {safe_cast} {op} {v_num})"
+        except ValueError:
+            # Tratamento de Strings
+            v_str = str(val).replace("'", "''").lower().strip()
+            return f"(CAST({col} AS VARCHAR) IS NOT NULL AND LOWER(TRIM(CAST({col} AS VARCHAR))) {op} '{v_str}')"
+
+    def _create_main_sql(self, f: Dict, col: str) -> str:
+        """Cria o SQL da regra principal (com suporte a lógica expandida)."""
+        op1, val1 = f.get('p_op1'), f.get('p_val1')
+        safe_col = f'"{col}"'
+        
+        if not f.get('p_expand'):
+            return self._build_single_sql_cond(safe_col, op1, val1)
+
+        op_central = f.get('p_op_central', '').upper()
+        op2, val2 = f.get('p_op2'), f.get('p_val2')
+
+        if op_central == 'BETWEEN':
+            try:
                 v1_num = float(str(val1).replace(',', '.'))
-                op_central_ui, op2_ui, val2 = f.get('p_op_central'), f.get('p_op2'), f.get('p_val2')
-                op2 = self.OPERATOR_MAP.get(op2_ui, op2_ui)
                 v2_num = float(str(val2).replace(',', '.'))
+                min_v, max_v = sorted([v1_num, v2_num])
+                safe_cast = f"TRY_CAST(REPLACE(CAST({safe_col} AS VARCHAR), ',', '.') AS DOUBLE)"
+                return f"({safe_cast} IS NOT NULL AND {safe_cast} BETWEEN {min_v} AND {max_v})"
+            except ValueError:
+                return "FALSE"
 
-                if op_central_ui.upper() == 'BETWEEN':
-                    min_val, max_val = sorted((v1_num, v2_num))
-                    return df[col].between(min_val, max_val, inclusive='both')
-                m1 = self._build_single_mask(df[col], op1, v1_num)
-                m2 = self._build_single_mask(df[col], op2, v2_num)
-                if op_central_ui.upper() == 'AND': return m1 & m2
-                if op_central_ui.upper() == 'OR': return m1 | m2
-            else:
-                v1_num = float(str(val1).replace(',', '.'))
-                return self._build_single_mask(df[col], op1, v1_num)
-        except (ValueError, TypeError):
-            return pd.Series([False] * len(df), index=df.index)
+        cond1 = self._build_single_sql_cond(safe_col, op1, val1)
+        cond2 = self._build_single_sql_cond(safe_col, op2, val2)
+        return f"({cond1} {op_central} {cond2})"
 
-    def _create_conditional_mask(self, df: pd.DataFrame, f: Dict, global_config: Dict) -> pd.Series:
-        mascara_condicional = pd.Series(True, index=df.index)
-        if not f.get('c_check'): return mascara_condicional
+    def _create_conditional_sql(self, f: Dict, global_config: Dict) -> str:
+        """Cria o SQL das condições secundárias (Idade/Sexo)."""
+        if not f.get('c_check'): return "TRUE"
+        conds = []
 
         col_idade = global_config.get('coluna_idade')
-        if f.get('c_idade_check') and col_idade and col_idade in df.columns:
-            df[col_idade] = self._safe_to_numeric(df[col_idade])
-            try:
-                op_idade1_ui, val_idade1 = f.get('c_idade_op1'), f.get('c_idade_val1')
-                if op_idade1_ui and val_idade1:
-                    op1 = self.OPERATOR_MAP.get(op_idade1_ui, op_idade1_ui)
-                    v1 = float(str(val_idade1).replace(',', '.'))
-                    mascara_condicional &= self._build_single_mask(df[col_idade], op1, v1)
-                
-                op_idade2_ui, val_idade2 = f.get('c_idade_op2'), f.get('c_idade_val2')
-                if op_idade2_ui and val_idade2:
-                    op2 = self.OPERATOR_MAP.get(op_idade2_ui, op_idade2_ui)
-                    v2 = float(str(val_idade2).replace(',', '.'))
-                    mascara_condicional &= self._build_single_mask(df[col_idade], op2, v2)
-            except (ValueError, TypeError):
-                pass
+        if f.get('c_idade_check') and col_idade:
+            safe_idade = f'"{col_idade}"'
+            op1, val1 = f.get('c_idade_op1'), f.get('c_idade_val1')
+            if op1 and val1: conds.append(self._build_single_sql_cond(safe_idade, op1, val1))
+            
+            op2, val2 = f.get('c_idade_op2'), f.get('c_idade_val2')
+            if op2 and val2: conds.append(self._build_single_sql_cond(safe_idade, op2, val2))
 
         col_sexo = global_config.get('coluna_sexo')
-        if f.get('c_sexo_check') and col_sexo and col_sexo in df.columns:
-            val_sexo_gui = f.get('c_sexo_val', '').lower().strip()
-            if val_sexo_gui:
-                mascara_condicional &= self._build_single_mask(df[col_sexo], '==', val_sexo_gui)
-        return mascara_condicional
+        if f.get('c_sexo_check') and col_sexo:
+            val_sexo = f.get('c_sexo_val')
+            if val_sexo:
+                safe_sexo = f'"{col_sexo}"'
+                conds.append(self._build_single_sql_cond(safe_sexo, '=', val_sexo))
+
+        return " AND ".join(conds) if conds else "TRUE"
 
     def apply_filters(self, df: pd.DataFrame, filters_config: List[Dict], global_config: Dict, progress_bar) -> pd.DataFrame:
-        df_processado = df.copy()
+        """Executa a lógica de Exclusão usando o DuckDB para alta performance."""
         active_filters = [f for f in filters_config if f['p_check']]
-        total_filters = len(active_filters)
+        
+        if not active_filters:
+            progress_bar.progress(1.0, text="Nenhum filtro ativo.")
+            return df
 
+        exclusion_clauses = []
+        
         for i, f_config in enumerate(active_filters):
-            progress = (i + 1) / total_filters
-            col_name = f_config.get('p_col', 'Unknown Rule')
-            progress_bar.progress(progress, text=f"Applying filter {i+1}/{total_filters}: '{col_name[:30]}...'")
-
+            progress_bar.progress((i + 1) / len(active_filters), text=f"Mapeando regra SQL {i+1}...")
+            
             col_config_str = f_config.get('p_col', '')
             cols_to_check = [c.strip() for c in col_config_str.split(';') if c.strip()]
-
-            is_numeric_filter = f_config.get('p_val1', '').lower() != 'empty'
-            for col in cols_to_check:
-                if col in df_processado.columns and is_numeric_filter:
-                    df_processado[col] = self._safe_to_numeric(df_processado[col])
-
-            combined_mask = pd.Series(True, index=df_processado.index)
-            if not cols_to_check:
-                combined_mask = pd.Series(False, index=df_processado.index)
-            else:
-                for sub_col in cols_to_check:
-                    if sub_col in df_processado.columns:
-                        combined_mask &= self._create_main_mask(df_processado, f_config, sub_col)
-                    else:
-                        combined_mask = pd.Series(False, index=df_processado.index)
-                        break
             
-            conditional_mask = self._create_conditional_mask(df_processado, f_config, global_config)
-            final_mask_to_exclude = combined_mask & conditional_mask
-            
-            df_processado = df_processado[~final_mask_to_exclude]
-        
-        progress_bar.progress(1.0, text="Filtering complete!")
-        return df_processado
+            if not cols_to_check: continue
+
+            main_conds = []
+            for sub_col in cols_to_check:
+                if sub_col in df.columns:
+                    main_conds.append(self._create_main_sql(f_config, sub_col))
+                else:
+                    main_conds.append("FALSE")
+
+            combined_main_sql = " AND ".join([f"({c})" for c in main_conds]) if main_conds else "FALSE"
+            cond_sql = self._create_conditional_sql(f_config, global_config)
+
+            # Lógica de exclusão: se a linha satisfaz a regra principal E a condicional, ela deve ser excluída.
+            # Portanto, nós queremos manter as linhas onde NOT(regra_principal AND regra_condicional)
+            rule_sql = f"({combined_main_sql}) AND ({cond_sql})"
+            exclusion_clauses.append(f"NOT ({rule_sql})")
+
+        if not exclusion_clauses:
+            progress_bar.progress(1.0, text="Processamento concluído!")
+            return df
+
+        where_clause = " AND ".join(exclusion_clauses)
+        query = f"SELECT * FROM df WHERE {where_clause}"
+
+        try:
+            progress_bar.progress(0.8, text="Executando Motor DuckDB (SQL)...")
+            filtered_df = duckdb.query(query).df()
+            progress_bar.progress(1.0, text="Filtering complete!")
+            return filtered_df
+        except Exception as e:
+            st.error(f"Erro no processamento SQL: {e}")
+            return df
     
     def apply_stratification(self, df: pd.DataFrame, strata_config: Dict, global_config: Dict, progress_bar) -> Dict[str, pd.DataFrame]:
+        """Divide o banco em sub-planilhas usando DuckDB."""
         col_idade = global_config.get('coluna_idade')
         col_sexo = global_config.get('coluna_sexo')
 
@@ -246,7 +275,8 @@ class DataProcessor:
         if not (col_sexo and col_sexo in df.columns):
             st.error(f"Sex/gender column '{col_sexo}' not found in the spreadsheet."); return {}
 
-        df[col_idade] = self._safe_to_numeric(df[col_idade])
+        safe_idade = f'"{col_idade}"'
+        safe_sexo = f'"{col_sexo}"'
 
         age_strata = strata_config.get('ages', [])
         sex_strata = strata_config.get('sexes', [])
@@ -266,40 +296,33 @@ class DataProcessor:
 
         for i, stratum in enumerate(final_strata_to_process):
             progress = (i + 1) / total_files
-            combined_mask = pd.Series(True, index=df.index)
+            conditions = []
 
             age_rule = stratum.get('age')
-            sex_rule = stratum.get('sex')
-
             if age_rule:
-                age_mask = pd.Series(True, index=df.index)
-                try:
-                    if age_rule.get('op1') and age_rule.get('val1'):
-                        op1 = self.OPERATOR_MAP.get(age_rule['op1'], age_rule['op1'])
-                        val1 = float(str(age_rule['val1']).replace(',', '.'))
-                        age_mask &= eval(f"df['{col_idade}'] {op1} {val1}")
-                    if age_rule.get('op2') and age_rule.get('val2'):
-                        op2 = self.OPERATOR_MAP.get(age_rule['op2'], age_rule['op2'])
-                        val2 = float(str(age_rule['val2']).replace(',', '.'))
-                        age_mask &= eval(f"df['{col_idade}'] {op2} {val2}")
-                    combined_mask &= age_mask
-                except (ValueError, TypeError):
-                    st.warning(f"Could not apply age rule due to invalid values: {age_rule}")
-                    continue
+                if age_rule.get('op1') and age_rule.get('val1'):
+                    conditions.append(self._build_single_sql_cond(safe_idade, age_rule['op1'], age_rule['val1']))
+                if age_rule.get('op2') and age_rule.get('val2'):
+                    conditions.append(self._build_single_sql_cond(safe_idade, age_rule['op2'], age_rule['val2']))
 
-            if sex_rule:
-                sex_val = sex_rule.get('value')
-                if sex_val:
-                    combined_mask &= self._build_single_mask(df[col_sexo], '==', sex_val)
-            
-            stratum_df = df[combined_mask]
+            sex_rule = stratum.get('sex')
+            if sex_rule and sex_rule.get('value'):
+                conditions.append(self._build_single_sql_cond(safe_sexo, '=', sex_rule['value']))
+
+            where_clause = " AND ".join([f"({c})" for c in conditions]) if conditions else "TRUE"
+            query = f"SELECT * FROM df WHERE {where_clause}"
+
             filename = self._generate_stratum_name(age_rule, sex_rule)
-            progress_bar.progress(progress, text=f"Generating stratum {i+1}/{total_files}: {filename}...")
+            progress_bar.progress(progress, text=f"Gerando estrato {i+1}/{total_files}: {filename}...")
             
-            if not stratum_df.empty:
-                generated_dfs[filename] = stratum_df
-        
-        progress_bar.progress(1.0, text="Stratification complete!")
+            try:
+                stratum_df = duckdb.query(query).df()
+                if not stratum_df.empty:
+                    generated_dfs[filename] = stratum_df
+            except Exception as e:
+                st.warning(f"Não foi possível gerar o estrato {filename} devido a erro nos valores: {e}")
+
+        progress_bar.progress(1.0, text="Estratificação completa!")
         return generated_dfs
 
     def _generate_stratum_name(self, age_rule: Optional[Dict], sex_rule: Optional[Dict]) -> str:
@@ -318,9 +341,9 @@ class DataProcessor:
             if op1 and val1 and not (op2 and val2):
                 if v1_int is not None:
                     if op1 == '>': name_parts.append(f"Over_{v1_int}_years")
-                    elif op1 == '≥': name_parts.append(f"{v1_int}_and_over_years")
+                    elif op1 in ('≥', '>='): name_parts.append(f"{v1_int}_and_over_years")
                     elif op1 == '<': name_parts.append(f"Under_{v1_int}_years")
-                    elif op1 == '≤': name_parts.append(f"Up_to_{v1_int}_years")
+                    elif op1 in ('≤', '<='): name_parts.append(f"Up_to_{v1_int}_years")
             elif op1 and val1 and op2 and val2:
                 if v1_int is not None and v2_int is not None:
                     v1_f, v2_f = float(str(val1).replace(',', '.')), float(str(val2).replace(',', '.'))
@@ -333,8 +356,8 @@ class DataProcessor:
                     low_val_f, low_op = bounds[0]
                     high_val_f, high_op = bounds[1]
 
-                    low_bound = int(low_val_f) if low_op == '≥' else int(low_val_f + 1) if low_op == '>' else int(low_val_f)
-                    high_bound = int(high_val_f) if high_op == '≤' else int(high_val_f - 1) if high_op == '<' else int(high_val_f)
+                    low_bound = int(low_val_f) if low_op in ('≥', '>=') else int(low_val_f + 1) if low_op == '>' else int(low_val_f)
+                    high_bound = int(high_val_f) if high_op in ('≤', '<=') else int(high_val_f - 1) if high_op == '<' else int(high_val_f)
                     
                     if low_bound > high_bound: name_parts.append("Invalid_range")
                     else: name_parts.append(f"{low_bound}_to_{high_bound}_years")
@@ -345,58 +368,72 @@ class DataProcessor:
 
 # --- FUNÇÕES AUXILIARES OTIMIZADAS ---
 
-@st.cache_data(show_spinner="Otimizando motor de dados...")
+@st.cache_data(show_spinner="Lendo arquivo...")
 def load_dataframe(uploaded_file):
     if uploaded_file is None: return None
     try:
         file_name = uploaded_file.name.lower()
         
+        # 1. STREAMING PARA O DISCO: Evita clonar o arquivo gigante na memória RAM
+        uploaded_file.seek(0)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file_name)[1]) as tmp_file:
+            shutil.copyfileobj(uploaded_file, tmp_file)
+            tmp_path = tmp_file.name
+
+        df = None
+
         # --- LÓGICA DE TRATAMENTO DE ZIP ---
         if file_name.endswith('.zip'):
-            with zipfile.ZipFile(uploaded_file) as z:
+            with zipfile.ZipFile(tmp_path) as z:
                 valid_files = [f for f in z.namelist() if not f.startswith('__MACOSX/') and 
                                (f.lower().endswith('.csv') or f.lower().endswith(('.xlsx', '.xls')))]
                 
                 if not valid_files:
-                    st.error("ZIP does not contain valid CSV or Excel files.")
+                    st.error("O ZIP não contém arquivos CSV ou Excel válidos.")
+                    os.remove(tmp_path)
                     return None
                 
-                with z.open(valid_files[0]) as f:
-                    content = f.read()
-                    inner_filename = valid_files[0].lower()
-                    
-                    if inner_filename.endswith('.csv'):
-                        try:
-                            df = pd.read_csv(io.BytesIO(content), sep=';', decimal=',', encoding='latin-1', low_memory=False)
-                        except Exception:
-                            df = pd.read_csv(io.BytesIO(content), sep=',', decimal='.', encoding='utf-8', low_memory=False)
-                    else:
-                        df = pd.read_excel(io.BytesIO(content), engine='openpyxl')
-        
-        # --- LÓGICA ORIGINAL PARA ARQUIVOS DIRETOS ---
+                # Extrai o arquivo para o disco temporário
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(valid_files[0])[1]) as inner_tmp:
+                    inner_tmp.write(z.read(valid_files[0]))
+                    inner_path = inner_tmp.name
+                
+                inner_filename = valid_files[0].lower()
+                
+                if inner_filename.endswith('.csv'):
+                    try:
+                        # 2. MOTOR PYARROW: Leitura super rápida com metade do custo de memória
+                        df = pd.read_csv(inner_path, sep=';', decimal=',', encoding='latin-1', engine='pyarrow')
+                    except Exception:
+                        df = pd.read_csv(inner_path, sep=',', decimal='.', encoding='utf-8', engine='pyarrow')
+                else:
+                    df = pd.read_excel(inner_path, engine='openpyxl')
+                
+                os.remove(inner_path)
+
+        # --- LÓGICA PARA ARQUIVOS DIRETOS ---
         elif file_name.endswith('.csv'):
-            uploaded_file.seek(0)
             try: 
-                df = pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=';', decimal=',', encoding='latin-1', low_memory=False)
+                df = pd.read_csv(tmp_path, sep=';', decimal=',', encoding='latin-1', engine='pyarrow')
             except Exception:
-                uploaded_file.seek(0)
-                df = pd.read_csv(io.BytesIO(uploaded_file.getvalue()), sep=',', decimal='.', encoding='utf-8', low_memory=False)
+                df = pd.read_csv(tmp_path, sep=',', decimal='.', encoding='utf-8', engine='pyarrow')
         else:
-            uploaded_file.seek(0)
-            df = pd.read_excel(io.BytesIO(uploaded_file.getvalue()), engine='openpyxl')
+            df = pd.read_excel(tmp_path, engine='openpyxl')
 
-        fcols = df.select_dtypes('float').columns
-        icols = df.select_dtypes('integer').columns
-        df[fcols] = df[fcols].apply(pd.to_numeric, downcast='float')
-        df[icols] = df[icols].apply(pd.to_numeric, downcast='integer')
+        # Limpa o arquivo temporário do disco para liberar espaço
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
-        for col in df.select_dtypes('object').columns:
-            if df[col].nunique() / len(df[col]) < 0.5:
-                df[col] = df[col].astype('category')
+        # Apenas otimiza colunas de texto (preserva todos os números intactos)
+        if df is not None:
+            for col in df.select_dtypes('object').columns:
+                if df[col].nunique() / len(df[col]) < 0.5:
+                    df[col] = df[col].astype('category')
         
         return df
     except Exception as e:
-        st.error(f"Error reading file: {e}"); return None
+        st.error(f"Erro ao ler o arquivo: {e}")
+        return None
 
 @st.cache_data(show_spinner="Preparando arquivo para exportação...")
 def to_excel(df):
@@ -434,13 +471,11 @@ def draw_filter_rules(sex_column_values, column_options):
     
     header_cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium")
     
-    # Cálculo dinâmico para garantir que a Master Checkbox reflita o estado real
     if st.session_state.filter_rules:
         all_checked = all(rule.get('p_check', False) for rule in st.session_state.filter_rules)
     else:
         all_checked = False
 
-    # MASTER CHECKBOX AJUSTADA: Adição do label correto para gerar o aria-label observado
     header_cols[0].checkbox(
         "Selecionar/Desmarcar tudo",
         value=all_checked,
@@ -469,7 +504,6 @@ def draw_filter_rules(sex_column_values, column_options):
         with st.container():
             cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
             
-            # Checkbox Individual
             rule['p_check'] = cols[0].checkbox(
                 f"Ativar regra {rule['id']}", 
                 value=rule.get('p_check', True), 
@@ -586,7 +620,24 @@ def main():
             on_change=reset_results_on_upload,
             key="file_uploader_widget"
         )
-        df = load_dataframe(uploaded_file)
+
+        # --- NOVA LÓGICA DE MEMÓRIA (Evita lentidão ao clicar nos filtros) ---
+        if "dados_salvos" not in st.session_state:
+            st.session_state.dados_salvos = None
+        if "id_arquivo_atual" not in st.session_state:
+            st.session_state.id_arquivo_atual = None
+
+        if uploaded_file is not None:
+            # Só aciona a leitura se for um arquivo realmente novo
+            if st.session_state.id_arquivo_atual != uploaded_file.file_id:
+                st.session_state.dados_salvos = load_dataframe(uploaded_file)
+                st.session_state.id_arquivo_atual = uploaded_file.file_id
+        else:
+            # Limpa a memória se o usuário fechar o arquivo
+            st.session_state.dados_salvos = None
+            st.session_state.id_arquivo_atual = None
+
+        df = st.session_state.dados_salvos
         column_options = df.columns.tolist() if df is not None else []
         c1, c2, c3 = st.columns(3)
         with c1: st.selectbox("Age Column", options=column_options, key="col_idade", index=None, placeholder="Select the Age column")
@@ -691,5 +742,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
