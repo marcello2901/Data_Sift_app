@@ -1,9 +1,6 @@
-streamlit
-pandas
-openpyxl
-xlrd
-Pillow
-streamlit-authenticator
-pyyaml
-altair<5
-tzdata
+streamlit==1.32.2
+pandas==2.2.2
+numpy==1.26.4
+openpyxl==3.1.2
+duckdb==0.10.2
+pyarrow==15.0.2
