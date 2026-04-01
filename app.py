@@ -426,9 +426,19 @@ def load_dataframe(uploaded_file):
 
         # Apenas otimiza colunas de texto (preserva todos os números intactos)
         if df is not None:
-            for col in df.select_dtypes('object').columns:
-                if df[col].nunique() / len(df[col]) < 0.5:
-                    df[col] = df[col].astype('category')
+            for col in df.select_dtypes(include=['object']).columns:
+                # 1. Converte apenas os valores não-nulos para string pura.
+                # Isso impede que objetos complexos (como arrays) cheguem ao DuckDB
+                # e mantém os valores nulos intactos para o filtro "empty" funcionar.
+                mask = df[col].notna()
+                df.loc[mask, col] = df.loc[mask, col].astype(str)
+                
+                # 2. Aplica a otimização de categoria de forma segura
+                try:
+                    if df[col].nunique() / len(df[col]) < 0.5:
+                        df[col] = df[col].astype('category')
+                except Exception:
+                    pass # Se houver algum erro bizarro no nunique, ignora e segue
         
         return df
     except Exception as e:
