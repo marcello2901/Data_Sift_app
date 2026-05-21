@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 
-# Versão 2.6.2 - Correção: Robustez do Motor de Estratificação
-# Melhorias: Isolamento de conexão do DuckDB para evitar conflitos de variáveis globais e correção do comportamento de unificação quando nenhum sexo é selecionado.
-
+# Versão 3.1.4 (Final Consolidation - No Box-Cox, Dynamic CV, Grouped Ages)
 import streamlit as st
 import pandas as pd
+from scipy import stats
 import numpy as np
 import io
 import uuid
 import copy
 import zipfile
 import duckdb
+import time 
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Optional
@@ -19,22 +19,155 @@ import os
 import shutil
 import matplotlib.pyplot as plt
 import seaborn as sns
+import base64
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(layout="wide", page_title="Data Sift")
-st.markdown("""
+# --- CONFIGURAÇÃO E TEMA DA PÁGINA ---
+st.set_page_config(
+    page_title="DataSift",
+    page_icon="favicon.png", # Coloque o nome exato do arquivo da imagem que você salvou
+    layout="wide" 
+)
+
+# Paleta de Cores Baseada na Imagem de Referência
+COLOR_PRIMARY = "#073B4C"     # Azul Petróleo Escuro
+COLOR_SECONDARY = "#00E5FF"   # Ciano Brilhante Neon (Botões e destaques)
+COLOR_TERTIARY = "#118AB2"    # Azul Petróleo Médio
+COLOR_BG = "#F8F9FA"          # Fundo Off-white
+COLOR_CARD_BG = "#FFFFFF"     # Fundo dos Cards Branco puro
+
+# Ícone de opção de ajuda
+help_icon = "<span style='cursor: help; color: #118AB2; font-size: 0.85em; font-weight: bold; background: #E0F7FA; border-radius: 50%; padding: 0px 5px;'>?</span>"
+HELP_ICON = "<span style='cursor: help; color: #118AB2; font-size: 0.85em; font-weight: bold; background: #E0F7FA; border-radius: 50%; padding: 0px 5px; margin-left: 5px;' title='Draws horizontal lines based on Harris-Boyd cuts.'>?</span>"
+
+# Injeção de CSS para forçar a identidade visual e o Layout em Cards
+st.markdown(f"""
     <style>
-        /* Remove o esmaecimento da tela ao clicar nos filtros */
-        [data-testid="stAppViewBlockContainer"] {
-            opacity: 1 !important;
-            transition: none !important;
-        }
-        /* Esconde o aviso "Running..." no canto superior direito */
-        [data-testid="stStatusWidget"] {
-            visibility: hidden;
-        }
+        /* Ajustes Estruturais e Fundo da Página */
+        [data-testid="stAppViewBlockContainer"] {{
+            padding-top: 2rem !important;
+        }}
+        .stApp {{ background-color: {COLOR_BG} !important; }}
+        [data-testid="stStatusWidget"] {{ visibility: hidden; }}
+        
+        /* Oculta títulos padrão para usar HTML customizado */
+        .st-emotion-cache-10trblm h1, .st-emotion-cache-10trblm h2, .st-emotion-cache-10trblm h3 {{
+            color: {COLOR_PRIMARY} !important;
+            font-weight: 800 !important;
+        }}
+
+        /* --- ESTILOS DOS CARDS --- */
+        .card-container {{
+            background-color: {COLOR_CARD_BG};
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #E0E0E0;
+            padding: 20px;
+            margin-bottom: 25px;
+        }}
+        
+        .card-with-header {{
+            background-color: {COLOR_CARD_BG};
+            border-radius: 12px;
+            border: 2px solid {COLOR_PRIMARY};
+            overflow: hidden;
+            margin-bottom: 20px;
+        }}
+        .card-header-bar {{
+            background-color: {COLOR_PRIMARY};
+            color: white;
+            padding: 12px 20px;
+            font-size: 1.25rem;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .card-content-area {{ padding: 20px; }}
+
+        /* --- BOTÕES --- */
+        button[kind="primary"] {{
+            background-color: {COLOR_SECONDARY} !important;
+            color: {COLOR_PRIMARY} !important; 
+            border-radius: 8px !important;
+            border: none !important;
+            font-weight: bold !important;
+            font-size: 1.1rem !important;
+            padding: 0.75rem 1rem !important;
+            box-shadow: 0 2px 4px rgba(0, 229, 255, 0.4) !important;
+        }}
+        button[kind="primary"]:hover {{ opacity: 0.8; }}
+        
+        button[kind="secondary"] {{
+            border-color: {COLOR_TERTIARY} !important;
+            color: {COLOR_TERTIARY} !important;
+            border-radius: 6px !important;
+        }}
+        
+        /* Mini Botões (Clone/X) */
+        .stButton>button {{ padding: 0.15rem 0.5rem; }}
+
+        /* --- INPUTS --- */
+        div[data-testid="stTextInput"] input, div[data-testid="stSelectbox"] div[data-baseweb="select"] {{
+            background-color: #F0F4F8 !important;
+            border: 1px solid #CFD8DC !important; 
+            border-radius: 6px;
+            color: {COLOR_PRIMARY} !important;
+        }}
+        div[data-testid="stTextInput"] input:focus, div[data-testid="stSelectbox"] div[data-baseweb="select"]:focus-within {{
+            border-color: {COLOR_TERTIARY} !important;
+            box-shadow: 0 0 0 1px {COLOR_TERTIARY} !important;
+        }}
+        label[data-testid="stWidgetLabel"] p {{
+            color: {COLOR_PRIMARY} !important;
+            font-weight: 600 !important;
+            font-size: 0.9rem !important;
+        }}
+        
+        /* Barra de Progresso */
+        .stProgress > div > div > div > div {{ background-color: {COLOR_SECONDARY} !important; }}
+        
+        /* --- MINI CARD LATERAL (Harris-Boyd) --- */
+        .mini-card-dark {{
+            background-color: {COLOR_PRIMARY};
+            color: white;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            margin-top: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }}
+        .mini-card-dark h4 {{
+            color: white !important;
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+            padding-bottom: 8px;
+        }}
+        .mini-card-dark p {{ margin: 0; font-size: 0.95rem; }}
+        
+        /* --- TABS --- */
+        div[data-testid="stTabs"] button {{
+            font-weight: 600;
+            color: {COLOR_PRIMARY} !important;
+        }}
+        div[data-testid="stTabs"] button[aria-selected="true"] {{
+            color: {COLOR_SECONDARY} !important;
+            border-bottom-color: {COLOR_SECONDARY} !important;
+        }}
     </style>
 """, unsafe_allow_html=True)
+
+def get_base64_of_bin_file(bin_file):
+    try:
+        with open(bin_file, 'rb') as f:
+            data = f.read()
+        return base64.b64encode(data).decode()
+    except FileNotFoundError:
+        return None
+
+logo_path = "datasift_logo.png"
+logo_base64 = get_base64_of_bin_file(logo_path)
 
 # --- CONSTANTES E DADOS ---
 GDPR_TERMS = """
@@ -48,57 +181,10 @@ To proceed, you must confirm that the data to be used has been properly handled 
 """
 
 MANUAL_CONTENT = {
-    "Introduction": """**Welcome to Data Sift!**
-
-This program is a spreadsheet filter tool designed to optimize your work with large volumes of data by offering two main functionalities:
-
-1.  **Filtering:** To clean your database by removing rows that are not of interest.
-2.  **Stratification:** To divide your database into specific subgroups.""",
-    "1. Global Settings": """**1. Global Settings**
-
-This section contains the essential settings that are shared between both tools.
-
-- **Select Spreadsheet:**
-  Opens a window to select the source data file. It supports `.xlsx`, `.xls`, and `.csv` formats.
-
-- **Age Column / Sex/Gender / Data Column:**
-  Fields to **select** the column names in your spreadsheet. The **Data Column** is specifically used to automatically run the Harris-Boyd stratification study and generate charts.
-
-- **Output Format:**
-  A selection menu to choose the format of the generated files. Choose `Excel (.xlsx)` for Microsoft Excel or `CSV (.csv)` for a lighter format.
-  """,
-    "2. Filter Tool": """**2. Filter Tool**
-
-The purpose of this tool is to **"clean"** your spreadsheet by **removing** rows that match specific criteria. The result is a **single file** containing only the data that "survived" the filters.
-
-**How Exclusion Rules Work:**
-Each row you add is a condition to **remove** data. If a row in your spreadsheet matches an active rule, it **will be excluded** from the final file.
-
-- **[✓] (Activation Checkbox):** Toggles a rule on or off without deleting it.
-
-- **Column:** The name of the column where the filter will be applied. **Tip:** You can apply the rule to multiple columns at once by separating their names with a semicolon (;).
-
-- **Operator and Value:** Operators define the rule's logic to set exclusion ranges.
-**Tip:** The keyword `empty` is a powerful feature:
-    - **Scenario 1:** Column: `"Exam_X"`, Operator: `"is equal to"`, Value: `"empty"`.
-    - **Scenario 2:** Column: `"Observations"`, Operator: `"Not equal to"`, Value: `"empty"`.
-
-- **Compound Logic:** Expands the rule to create `AND` / `OR` conditions.
-
-- **Condition:** Allows applying a secondary filter based on sex and/or age conditions.
-
-- **Actions:** The `X` button deletes the rule. The 'Clone' button duplicates it.""",
-    "3. Stratification Tool": """**3. Stratification Tool**
-
-This tool splits your spreadsheet into **multiple smaller files**, where each file represents a subgroup of interest.
-
-**Harris-Boyd Study & Charts:**
-Automatically evaluates the selected Data Column and Age Column to suggest the most statistically relevant age cuts. You can also generate Boxplot charts to visually inspect the data distribution.
-
-**How Stratification Works:**
-- **Stratification Options by Sex/Gender:** Select the genders you want to include.
-- **Age Range Definitions:** Create the specific age boundaries.
-- **Generate Stratified Sheets:** Starts the splitting process."""
+    "Introduction": """**Welcome to Data Sift!**\n\nThis program is a spreadsheet filter tool designed to optimize your work with large volumes of data by offering two main functionalities:\n\n1.  **Filtering:** To clean your database by removing rows that are not of interest.\n2.  **Stratification:** To divide your database into specific subgroups.""",
+    "1. Global Settings": """**1. Global Settings**\n\nThis section contains the essential settings that are shared between both tools.\n\n- **Select Spreadsheet:**\n  Opens a window to select the source data file. It supports `.xlsx`, `.xls`, and `.csv` formats.\n\n- **Age Column / Sex/Gender / Data Column:**\n  Fields to **select** the column names in your spreadsheet. The **Data Column** is specifically used to automatically run the Harris-Boyd stratification study and generate charts.\n\n- **Output Format:**\n  A selection menu to choose the format of the generated files. Choose `Excel (.xlsx)` for Microsoft Excel or `CSV (.csv)` for a lighter format.""",
+    "2. Filter Tool": """**2. Filter Tool**\n\nThe purpose of this tool is to **"clean"** your spreadsheet by **removing** rows that match specific criteria. The result is a **single file** containing only the data that "survived" the filters.\n\n**How Exclusion Rules Work:**\nEach row you add is a condition to **remove** data. If a row in your spreadsheet matches an active rule, it **will be excluded** from the final file.\n\n- **[✓] (Activation Checkbox):** Toggles a rule on or off without deleting it.\n\n- **Column:** The name of the column where the filter will be applied. **Tip:** You can apply the rule to multiple columns at once by separating their names with a semicolon (;).\n\n- **Operator and Value:** Operators define the rule's logic to set exclusion ranges.\n**Tip:** The keyword `empty` is a powerful feature:\n    - **Scenario 1:** Column: `"Exam_X"`, Operator: `"is equal to"`, Value: `"empty"`.\n    - **Scenario 2:** Column: `"Observations"`, Operator: `"Not equal to"`, Value: `"empty"`.\n\n- **Compound Logic:** Expands the rule to create `AND` / `OR` conditions.\n\n- **Condition:** Allows applying a secondary filter based on sex and/or age conditions.\n\n- **Actions:** The `X` button deletes the rule. The 'Clone' button duplicates it.""",
+    "3. Stratification Tool": """**3. Stratification Tool**\n\nThis tool splits your spreadsheet into **multiple smaller files**, where each file represents a subgroup of interest.\n\n**Statistical and Practial approaches & Charts:**\nAutomatically evaluates the selected Data Column and Age Column to suggest the most statistically relevant age cuts. You can also generate Boxplot charts to visually inspect the data distribution.\n\n**How Stratification Works:**\n- **Stratification Options by Sex/Gender:** Select the genders you want to include.\n- **Age Range Definitions:** Create the specific age boundaries.\n- **Generate Stratified Sheets:** Starts the splitting process."""
 }
 
 DEFAULT_FILTERS = [
@@ -130,8 +216,7 @@ DEFAULT_FILTERS = [
     {'id': str(uuid.uuid4()), 'p_check': True, 'p_col': 'Hemo.#HGB', 'p_op1': '<', 'p_val1': '7', 'p_expand': False, 'c_check': False},
 ]
 
-# --- CLASSES DE PROCESSAMENTO (DUCKDB OTIMIZADO) ---
-
+# --- CLASSES DE PROCESSAMENTO ---
 @st.cache_resource
 def get_data_processor():
     return DataProcessor()
@@ -140,14 +225,12 @@ class DataProcessor:
     OPERATOR_MAP = {'=': '=', '==': '=', 'Não é igual a': '!=', '≥': '>=', '≤': '<=', 'is equal to': '=', 'Not equal to': '!='}
 
     def _build_single_sql_cond(self, col: str, op: str, val: Any) -> str:
-        if not op: return "FALSE" # Prevenção de erro de sintaxe SQL
+        if not op: return "FALSE"
         op = self.OPERATOR_MAP.get(op, op)
-
         if str(val).lower() == 'empty':
             if op in ('=', '=='): return f"({col} IS NULL OR TRIM(CAST({col} AS VARCHAR)) = '')"
             if op == '!=': return f"({col} IS NOT NULL AND TRIM(CAST({col} AS VARCHAR)) != '')"
             return "FALSE"
-
         try:
             v_num = float(str(val).replace(',', '.'))
             safe_cast = f"TRY_CAST(REPLACE(CAST({col} AS VARCHAR), ',', '.') AS DOUBLE)"
@@ -159,13 +242,10 @@ class DataProcessor:
     def _create_main_sql(self, f: Dict, col: str) -> str:
         op1, val1 = f.get('p_op1'), f.get('p_val1')
         safe_col = f'"{col}"'
-        
         if not f.get('p_expand'):
             return self._build_single_sql_cond(safe_col, op1, val1)
-
         op_central = f.get('p_op_central', '').upper()
         op2, val2 = f.get('p_op2'), f.get('p_val2')
-
         if op_central == 'BETWEEN':
             try:
                 v1_num = float(str(val1).replace(',', '.'))
@@ -173,9 +253,7 @@ class DataProcessor:
                 min_v, max_v = sorted([v1_num, v2_num])
                 safe_cast = f"TRY_CAST(REPLACE(CAST({safe_col} AS VARCHAR), ',', '.') AS DOUBLE)"
                 return f"({safe_cast} IS NOT NULL AND {safe_cast} BETWEEN {min_v} AND {max_v})"
-            except ValueError:
-                return "FALSE"
-
+            except ValueError: return "FALSE"
         cond1 = self._build_single_sql_cond(safe_col, op1, val1)
         cond2 = self._build_single_sql_cond(safe_col, op2, val2)
         return f"({cond1} {op_central} {cond2})"
@@ -183,40 +261,35 @@ class DataProcessor:
     def _create_conditional_sql(self, f: Dict, global_config: Dict) -> str:
         if not f.get('c_check'): return "TRUE"
         conds = []
-
         col_idade = global_config.get('coluna_idade')
         if f.get('c_idade_check') and col_idade:
             safe_idade = f'"{col_idade}"'
             op1, val1 = f.get('c_idade_op1'), f.get('c_idade_val1')
             if op1 and val1: conds.append(self._build_single_sql_cond(safe_idade, op1, val1))
-            
             op2, val2 = f.get('c_idade_op2'), f.get('c_idade_val2')
             if op2 and val2: conds.append(self._build_single_sql_cond(safe_idade, op2, val2))
-
         col_sexo = global_config.get('coluna_sexo')
         if f.get('c_sexo_check') and col_sexo:
             val_sexo = f.get('c_sexo_val')
             if val_sexo:
                 safe_sexo = f'"{col_sexo}"'
                 conds.append(self._build_single_sql_cond(safe_sexo, '=', val_sexo))
-
         return " AND ".join(conds) if conds else "TRUE"
 
     def apply_filters(self, df_input: pd.DataFrame, filters_config: List[Dict], global_config: Dict, progress_bar) -> pd.DataFrame:
+        start_time = time.perf_counter()
         active_filters = [f for f in filters_config if f['p_check']]
         
         if not active_filters:
-            progress_bar.progress(1.0, text="No active filter rules.")
+            end_time = time.perf_counter()
+            progress_bar.progress(1.0, text=f"No active filter rules. (Time: {end_time - start_time:.4f}s)")
             return df_input
 
         exclusion_clauses = []
-        
         for i, f_config in enumerate(active_filters):
             progress_bar.progress((i + 1) / len(active_filters), text=f"Mapping SQL rule {i+1}...")
-            
             col_config_str = f_config.get('p_col', '')
             cols_to_check = [c.strip() for c in col_config_str.split(';') if c.strip()]
-            
             if not cols_to_check: continue
 
             main_conds = []
@@ -228,16 +301,15 @@ class DataProcessor:
 
             combined_main_sql = " AND ".join([f"({c})" for c in main_conds]) if main_conds else "FALSE"
             cond_sql = self._create_conditional_sql(f_config, global_config)
-
             rule_sql = f"({combined_main_sql}) AND ({cond_sql})"
             exclusion_clauses.append(f"NOT ({rule_sql})")
 
         if not exclusion_clauses:
-            progress_bar.progress(1.0, text="Processing complete!")
+            end_time = time.perf_counter()
+            progress_bar.progress(1.0, text=f"Processing complete! (Time: {end_time - start_time:.4f}s)")
             return df_input
 
         where_clause = " AND ".join(exclusion_clauses)
-        
         local_df = df_input.copy()
         local_df['_temp_row_id'] = range(len(local_df))
         
@@ -248,12 +320,13 @@ class DataProcessor:
         try:
             progress_bar.progress(0.8, text="Executing DuckDB Engine (SQL)...")
             valid_ids_df = con.execute(query).df()
-            
             filtered_df = local_df[local_df['_temp_row_id'].isin(valid_ids_df['_temp_row_id'])].copy()
             filtered_df.drop(columns=['_temp_row_id'], inplace=True)
-            
             con.close()
-            progress_bar.progress(1.0, text="Filtering complete!")
+            
+            end_time = time.perf_counter()
+            tempo_execucao = end_time - start_time
+            progress_bar.progress(1.0, text=f"Filtering complete! Processing time: {tempo_execucao:.4f} seconds.")
             return filtered_df
         except Exception as e:
             con.close()
@@ -267,7 +340,6 @@ class DataProcessor:
         age_strata = strata_config.get('ages', [])
         sex_strata = strata_config.get('sexes', [])
 
-        # Só exige validação das colunas se o usuário tentou criar uma regra usando elas
         if age_strata and not (col_idade and col_idade in df_input.columns):
             st.session_state.stratification_error = f"Age column '{col_idade}' not found or not mapped in Global Settings."
             return {}
@@ -300,7 +372,6 @@ class DataProcessor:
         for i, stratum in enumerate(final_strata_to_process):
             progress = (i + 1) / total_files
             conditions = []
-
             age_rule = stratum.get('age')
             if age_rule:
                 if age_rule.get('op1') and age_rule.get('val1'):
@@ -336,7 +407,6 @@ class DataProcessor:
         if age_rule:
             op1, val1 = age_rule.get('op1'), age_rule.get('val1')
             op2, val2 = age_rule.get('op2'), age_rule.get('val2')
-            
             def get_int(val): 
                 try: return int(float(str(val).replace(',', '.')))
                 except (ValueError, TypeError): return None
@@ -353,15 +423,12 @@ class DataProcessor:
             elif op1 and val1 and op2 and val2:
                 if v1_int is not None and v2_int is not None:
                     v1_f, v2_f = float(str(val1).replace(',', '.')), float(str(val2).replace(',', '.'))
-                    
                     bounds = []
                     if op1 and val1: bounds.append((v1_f, op1))
                     if op2 and val2: bounds.append((v2_f, op2))
                     bounds.sort(key=lambda x: x[0])
-
                     low_val_f, low_op = bounds[0]
                     high_val_f, high_op = bounds[1]
-
                     low_bound = int(low_val_f) if low_op in ('≥', '>=') else int(low_val_f + 1) if low_op == '>' else int(low_val_f)
                     high_bound = int(high_val_f) if high_op in ('≤', '<=') else int(high_val_f - 1) if high_op == '<' else int(high_val_f)
                     
@@ -371,7 +438,6 @@ class DataProcessor:
             sex_name = str(sex_rule.get('value', '')).replace(' ', '_')
             if sex_name: name_parts.append(sex_name)
         
-        # Garante que um nome será gerado se os loops estiverem incompletos
         final_name = "_".join(part for part in name_parts if part)
         return final_name if final_name else "Group_All"
 
@@ -382,312 +448,291 @@ def load_dataframe(uploaded_file):
     if uploaded_file is None: return None
     try:
         file_name = uploaded_file.name.lower()
-        
         uploaded_file.seek(0)
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file_name)[1]) as tmp_file:
             shutil.copyfileobj(uploaded_file, tmp_file)
             tmp_path = tmp_file.name
 
         df = None
-
         if file_name.endswith('.zip'):
             with zipfile.ZipFile(tmp_path) as z:
                 valid_files = [f for f in z.namelist() if not f.startswith('__MACOSX/') and 
                                (f.lower().endswith('.csv') or f.lower().endswith(('.xlsx', '.xls')))]
-                
                 if not valid_files:
                     st.error("The ZIP file contains no valid CSV or Excel files.")
                     os.remove(tmp_path)
                     return None
-                
                 with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(valid_files[0])[1]) as inner_tmp:
                     inner_tmp.write(z.read(valid_files[0]))
                     inner_path = inner_tmp.name
-                
                 inner_filename = valid_files[0].lower()
-                
                 if inner_filename.endswith('.csv'):
-                    try:
-                        df = pd.read_csv(inner_path, sep=';', decimal=',', encoding='latin-1', engine='pyarrow')
-                    except Exception:
-                        df = pd.read_csv(inner_path, sep=',', decimal='.', encoding='utf-8', engine='pyarrow')
-                else:
-                    df = pd.read_excel(inner_path, engine='openpyxl')
-                
+                    try: df = pd.read_csv(inner_path, sep=';', decimal=',', encoding='latin-1', engine='pyarrow')
+                    except Exception: df = pd.read_csv(inner_path, sep=',', decimal='.', encoding='utf-8', engine='pyarrow')
+                else: df = pd.read_excel(inner_path, engine='openpyxl')
                 os.remove(inner_path)
-
         elif file_name.endswith('.csv'):
-            try: 
-                df = pd.read_csv(tmp_path, sep=';', decimal=',', encoding='latin-1', engine='pyarrow')
-            except Exception:
-                df = pd.read_csv(tmp_path, sep=',', decimal='.', encoding='utf-8', engine='pyarrow')
+            try: df = pd.read_csv(tmp_path, sep=';', decimal=',', encoding='latin-1', engine='pyarrow')
+            except Exception: df = pd.read_csv(tmp_path, sep=',', decimal='.', encoding='utf-8', engine='pyarrow')
         else:
             df = pd.read_excel(tmp_path, engine='openpyxl')
 
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if os.path.exists(tmp_path): os.remove(tmp_path)
 
         if df is not None:
             for col in df.select_dtypes(include=['object']).columns:
                 mask = df[col].notna()
                 df.loc[mask, col] = df.loc[mask, col].astype(str)
-                
                 try:
-                    if df[col].nunique() / len(df[col]) < 0.5:
+                    # Não converta a coluna de dados para categoria!
+                    if col != st.session_state.col_dados and df[col].nunique() / len(df[col]) < 0.5:
                         df[col] = df[col].astype('category')
-                except Exception:
-                    pass 
-        
+                except Exception: pass 
         return df
     except Exception as e:
         st.error(f"Error reading file: {e}")
         return None
 
+def remove_outliers_tukey(df, col_dados, iterations=5, multiplier=2.0):
+    """
+    Aplica o Teste de Tukey iterativamente para remoção de outliers extremos.
+    """
+    df_clean = df.copy()
+    for _ in range(iterations):
+        if df_clean.empty:
+            break
+        Q1 = df_clean[col_dados].quantile(0.25)
+        Q3 = df_clean[col_dados].quantile(0.75)
+        IQR = Q3 - Q1
+        
+        lower_bound = Q1 - (multiplier * IQR)
+        upper_bound = Q3 + (multiplier * IQR)
+        
+        # Cria a máscara apenas com os dados dentro do limite seguro
+        mask = (df_clean[col_dados] >= lower_bound) & (df_clean[col_dados] <= upper_bound)
+        
+        # Se todos os dados atuais passaram no teste, não há mais outliers. Quebra o loop.
+        if mask.all(): 
+            break 
+            
+        df_clean = df_clean[mask]
+        
+    return df_clean
+
 @st.cache_data(show_spinner=False)
 def run_harris_boyd(df, col_idade, col_dados):
     temp_df = pd.DataFrame()
-    temp_df['Idade'] = pd.to_numeric(df[col_idade], errors='coerce')
-    
+    temp_df['Age'] = pd.to_numeric(df[col_idade], errors='coerce')
+
     def clean_val(x):
         if pd.isna(x): return np.nan
         x = str(x).replace(',', '.')
         x = ''.join(c for c in x if c.isdigit() or c == '.' or c == '-')
         try: return float(x)
         except: return np.nan
-        
-    temp_df['Data'] = pd.to_numeric(df[col_dados].apply(clean_val), errors='coerce')
-    temp_df = temp_df.dropna(subset=['Idade', 'Data'])
-    temp_df = temp_df[temp_df['Idade'] >= 0]
-    
-    if temp_df.empty:
-        return "No stratification recommended (Insufficient data).", pd.DataFrame()
-        
-    max_age = int(temp_df['Idade'].max())
-    if max_age < 1:
-        return "No stratification recommended (Insufficient age variation).", pd.DataFrame()
-        
-    valid_cuts = []
-    
+
+    temp_df['Data'] = df[col_dados].apply(clean_val).astype('float64')
+    temp_df = temp_df.dropna(subset=['Age', 'Data'])
+    temp_df = temp_df[temp_df['Age'] >= 0].copy()
+
+    # =========================================================================
+    # PRÉ-PROCESSAMENTO: LIMPEZA ITERATIVA DE TUKEY (5x, 2.0 IQR)
+    # =========================================================================
+    temp_df = remove_outliers_tukey(temp_df, 'Data', iterations=5, multiplier=2.0)
+
+    if temp_df.empty: return pd.DataFrame(), pd.DataFrame(), []
+    max_age = int(temp_df['Age'].max())
+    if max_age < 1: return pd.DataFrame(), pd.DataFrame(), []
+
+    # Margem de tolerância clínica baseada no CV global dos dados limpos
+    global_mean = temp_df['Data'].mean()
+    global_sd = temp_df['Data'].std(ddof=1)
+    global_cv = (global_sd / global_mean) if global_mean > 0 else 0.10
+    cv_tolerance_margin = global_cv * 0.50
+
+    # =========================================================================
+    # PISTA 1: ABORDAGEM ESTATÍSTICA (HARRIS-BOYD PURO) - 100% INDEPENDENTE
+    # =========================================================================
+    possible_cuts_hb = []
     for age_cutoff in range(1, max_age):
-        g1 = temp_df[temp_df['Idade'] <= age_cutoff]['Data']
-        g2 = temp_df[temp_df['Idade'] > age_cutoff]['Data']
-        
+        mask_g1 = temp_df['Age'] <= age_cutoff
+        mask_g2 = temp_df['Age'] > age_cutoff
+        g1, g2 = temp_df[mask_g1]['Data'], temp_df[mask_g2]['Data']
         n1, n2 = len(g1), len(g2)
-        if n1 < 30 or n2 < 30:
-            continue
-            
+        
+        if n1 < 30 or n2 < 30: continue
+
         mean1, mean2 = np.mean(g1), np.mean(g2)
         var1, var2 = np.var(g1, ddof=1), np.var(g2, ddof=1)
         sd1, sd2 = np.sqrt(var1), np.sqrt(var2)
-        
+
         sd_ratio = max(sd1, sd2) / min(sd1, sd2) if min(sd1, sd2) > 0 else 0
-        
-        den_z = np.sqrt((var1/n1) + (var2/n2)) if (var1/n1) + (var2/n2) > 0 else 0.0001
+        den_z = np.sqrt((var1 / n1) + (var2 / n2)) if (var1 / n1) + (var2 / n2) > 0 else 0.0001
         z = abs(mean1 - mean2) / den_z
-        z_crit = 3 * np.sqrt((n1+n2)/120) if (n1+n2) < 120 else 3
-        
-        den_d = np.sqrt((var1 + var2) / 2) if (var1 + var2) > 0 else 0.0001
-        d_value = abs(mean1 - mean2) / den_d
-        
+        z_crit = 3 * np.sqrt((n1 + n2) / 120) if (n1 + n2) < 120 else 3
+
         partition_by_sd = sd_ratio > 1.5
-        partition_by_mean = (z > z_crit) and (d_value > 0.25)
-        should_partition = partition_by_sd or partition_by_mean
-        
-        if should_partition:
-            just = 'Standard Deviation' if partition_by_sd and not partition_by_mean else ('Mean' if partition_by_mean and not partition_by_sd else 'Both')
-            valid_cuts.append({
-                'age': age_cutoff,
-                'justificativa': just,
-                'd_value': d_value,
-                'sd_ratio': sd_ratio,
-                'mean1': mean1,
-                'mean2': mean2,
-                'n1': n1,
-                'n2': n2,
+        partition_by_mean = z > z_crit
+
+        if partition_by_sd or partition_by_mean:
+            just_hb = 'Standard Deviation' if partition_by_sd and not partition_by_mean else ('Mean' if partition_by_mean and not partition_by_sd else 'Both')
+            possible_cuts_hb.append({
+                'age': age_cutoff, 'z_value': z,
                 'Age Cutoff': f"<= {age_cutoff} vs > {age_cutoff}",
-                'Justification': just,
-                'D-value': round(d_value, 3),
-                'SD Ratio': round(sd_ratio, 3),
+                'Z-score': round(z, 2),
+                'SD Ratio': round(sd_ratio, 2),
                 'Mean (<= Cutoff)': round(mean1, 2),
                 'Mean (> Cutoff)': round(mean2, 2)
             })
-            
-    if not valid_cuts:
-         return "The statistical model found no clinical necessity or sufficient variance to recommend age-based reference intervals for this analyte.", pd.DataFrame()
+    df_possible = pd.DataFrame(possible_cuts_hb).sort_values(by='age') if possible_cuts_hb else pd.DataFrame()
 
-    valid_cuts = sorted(valid_cuts, key=lambda x: x['age'])
+    # =========================================================================
+    # PISTA 2: ABORDAGEM CLÍNICA (EQUIVALÊNCIA POR CV) - 100% INDEPENDENTE
+    # =========================================================================
+    # Agrupa e calcula as médias anuais reais de cada idade isolada
+    age_groups = temp_df.groupby('Age')['Data'].agg(['mean', 'count']).reset_index()
+    age_groups = age_groups.sort_values(by='Age').to_dict('records')
 
-    clusters = []
-    current_cluster = []
-    
-    for i, cut in enumerate(valid_cuts):
-        if not current_cluster:
-            current_cluster.append(cut)
-            continue
-            
-        prev_cut = valid_cuts[i-1]
-        age_gap = cut['age'] - prev_cut['age']
-        cluster_max_d = max([c['d_value'] for c in current_cluster])
+    clinical_cuts = []
+    idades_sugeridas = []
+
+    if age_groups:
+        current_bracket_means = [age_groups[0]['mean']]
         
-        if age_gap > 3:
-            clusters.append(current_cluster)
-            current_cluster = [cut]
-            continue
-        
-        drop_from_peak = cluster_max_d - cut['d_value']
-        if drop_from_peak > 0.4 and drop_from_peak > (cluster_max_d * 0.25):
-            clusters.append(current_cluster)
-            current_cluster = [cut]
-            continue
+        for i in range(1, len(age_groups)):
+            current_age_data = age_groups[i]
+            reference_mean = np.mean(current_bracket_means)
             
-        d_diff = cut['d_value'] - prev_cut['d_value']
-        if d_diff > 0.15 and drop_from_peak > 0.15:
-            clusters.append(current_cluster)
-            current_cluster = [cut]
-            continue
+            # Calcula o desvio percentual do ano atual contra a estabilidade do platô vigente
+            pct_diff = abs(current_age_data['mean'] - reference_mean) / reference_mean if reference_mean > 0 else 0
             
-        current_cluster.append(cut)
-        
-    if current_cluster:
-        clusters.append(current_cluster)
+            # Se romper a barreira do CV e houver amostragem mínima para o ano (evita ruído)
+            if pct_diff > cv_tolerance_margin and current_age_data['count'] >= 5:
+                cutoff_age = int(age_groups[i-1]['Age'])
+                
+                # Reconstrói as métricas populacionais antes e depois do corte biológico para a tabela
+                m_less = temp_df[temp_df['Age'] <= cutoff_age]['Data'].mean()
+                m_greater = temp_df[temp_df['Age'] > cutoff_age]['Data'].mean()
+                
+                clinical_cuts.append({
+                    'age': cutoff_age,
+                    'Age Cutoff': f"<= {cutoff_age} vs > {cutoff_age}",
+                    'Diff %': round(pct_diff * 100, 2),
+                    'Mean (<= Cutoff)': round(m_less, 2),
+                    'Mean (> Cutoff)': round(m_greater, 2)
+                })
+                idades_sugeridas.append(cutoff_age)
+                # Reinicia a estabilidade biológica a partir desta nova idade cronológica
+                current_bracket_means = [current_age_data['mean']]
+            else:
+                # Permanece na mesma fase fisiológica, incorporando o ano ao platô
+                current_bracket_means.append(current_age_data['mean'])
 
-    best_cuts = []
-    for cluster in clusters:
-        best = max(cluster, key=lambda x: x['d_value'])
-        best_cuts.append(best)
+    df_ideal = pd.DataFrame(clinical_cuts).sort_values(by='age') if clinical_cuts else pd.DataFrame()
 
-    best_cuts = sorted(best_cuts, key=lambda x: x['age'])
-    
-    texto_laudo = "### 💡 Practical Stratification Suggestion\n"
-    texto_laudo += "The algorithm analyzed the means and data dispersion and detected **"
-    texto_laudo += "1 point**" if len(best_cuts) == 1 else f"{len(best_cuts)} points**"
-    texto_laudo += " of significant clinical change across ages:\n\n"
-
-    last_age = 0
-    for i, cut in enumerate(best_cuts):
-        idade_corte = cut['age']
-        m1 = cut['mean1']
-        m2 = cut['mean2']
-        
-        if i == 0:
-            faixa = f"From {last_age} to {idade_corte} years"
-        else:
-            faixa = f"From {last_age + 1} to {idade_corte} years"
-            
-        texto_laudo += f"**{i+1}. Group {faixa} (Approx. Mean: {m1:.1f})**\n"
-        texto_laudo += "🔹 *Why separate?* "
-        if cut['justificativa'] == 'Mean':
-            texto_laudo += f"In this life stage, there is a significant change in mean results compared to the rest of the population (jump to {m2:.1f}). "
-        elif cut['justificativa'] == 'Standard Deviation':
-            texto_laudo += "This age group presents a very different variability (data dispersion) compared to other ages. "
-        else:
-            texto_laudo += f"This age group has a unique behavior, both due to a different mean (jump to {m2:.1f}) and high data dispersion. "
-        texto_laudo += f"\n\n"
-        last_age = idade_corte
-        
-    texto_laudo += f"**{len(best_cuts)+1}. Group from {last_age + 1} years onwards (Approx. Mean: {best_cuts[-1]['mean2']:.1f})**\n"
-    texto_laudo += "🔹 From this barrier onwards, the model considers that the results tend to stabilize statistically, forming the main reference range for reports.\n"
-
-    idades_sugeridas = [c['age'] for c in best_cuts]
-    raw_data_list = []
-    
-    for cut in valid_cuts:
-        raw_data_list.append({
-            'Recommendation': '⭐ Suggested' if cut['age'] in idades_sugeridas else '',
-            'Age Cutoff': cut['Age Cutoff'],
-            'Justification': cut['Justification'],
-            'D-value': cut['D-value'],
-            'SD Ratio': cut['SD Ratio'],
-            'Mean (<= Cutoff)': cut['Mean (<= Cutoff)'],
-            'Mean (> Cutoff)': cut['Mean (> Cutoff)'],
-            'N (<= Cutoff)': cut['n1'],
-            'N (> Cutoff)': cut['n2']
-        })
-
-    raw_df = pd.DataFrame(raw_data_list)
-    
-    return texto_laudo, raw_df
+    return df_possible, df_ideal, idades_sugeridas
 
 @st.cache_data(show_spinner=False)
-def plot_dispersion_chart(df, col_idade, col_dados, col_sexo, intervalo, chart_type, group_by_sex, selected_sexes):
-    """Generates an interactive dispersion chart grouped by age bins and optionally by sex."""
+def plot_dispersion_chart(df, col_idade, col_dados, col_sexo, intervalo, chart_type, group_by_sex, selected_sexes, show_trendlines):
     temp_df = pd.DataFrame()
-    temp_df['Idade'] = pd.to_numeric(df[col_idade], errors='coerce')
-    
+    temp_df['Age'] = pd.to_numeric(df[col_idade], errors='coerce')
     def clean_val(x):
         if pd.isna(x): return np.nan
         x = str(x).replace(',', '.')
         x = ''.join(c for c in x if c.isdigit() or c == '.' or c == '-')
         try: return float(x)
         except: return np.nan
-        
     temp_df['Data'] = pd.to_numeric(df[col_dados].apply(clean_val), errors='coerce')
     
-    if col_sexo and col_sexo in df.columns:
-        temp_df['Sexo'] = df[col_sexo].astype(str)
-    else:
-        group_by_sex = False
+    if col_sexo and col_sexo in df.columns: temp_df['Sex'] = df[col_sexo].astype(str)
+    else: group_by_sex = False
 
-    temp_df = temp_df.dropna(subset=['Idade', 'Data'])
-    temp_df = temp_df[temp_df['Idade'] >= 0]
+    temp_df = temp_df.dropna(subset=['Age', 'Data'])
+    temp_df = temp_df[temp_df['Age'] >= 0]
     
-    if 'Sexo' in temp_df.columns and selected_sexes:
-        temp_df = temp_df[temp_df['Sexo'].isin(selected_sexes)]
+    if 'Sex' in temp_df.columns and selected_sexes:
+        temp_df = temp_df[temp_df['Sex'].isin(selected_sexes)]
         
     if temp_df.empty: return None
 
-    if intervalo > 1:
-        temp_df['Idade_Bin'] = (temp_df['Idade'] // intervalo) * intervalo
-        temp_df['Idade_Label'] = temp_df['Idade_Bin'].astype(int).astype(str) + " to " + (temp_df['Idade_Bin'] + intervalo - 1).astype(int).astype(str)
-        categories = temp_df.drop_duplicates('Idade_Bin').sort_values('Idade_Bin')['Idade_Label'].tolist()
-        temp_df['Idade_Label'] = pd.Categorical(temp_df['Idade_Label'], categories=categories, ordered=True)
-        x_col = 'Idade_Label'
-    else:
-        temp_df['Idade_Label'] = temp_df['Idade'].astype(int)
-        temp_df = temp_df.sort_values('Idade_Label')
-        x_col = 'Idade_Label'
+    min_age, max_age = int(temp_df['Age'].min()), int(temp_df['Age'].max())
 
-    fig, ax = plt.subplots(figsize=(16, 6))
-    
-    hue_col = 'Sexo' if group_by_sex and 'Sexo' in temp_df.columns else None
+    if intervalo > 1:
+        min_bin, max_bin = (min_age // intervalo) * intervalo, (max_age // intervalo) * intervalo
+        temp_df['Age_Bin'] = (temp_df['Age'] // intervalo) * intervalo
+        temp_df['Age_Label'] = temp_df['Age_Bin'].astype(int).astype(str) + " to " + (temp_df['Age_Bin'] + intervalo - 1).astype(int).astype(str)
+        categories = [f"{b} to {b + intervalo - 1}" for b in range(min_bin, max_bin + 1, int(intervalo))]
+    else:
+        temp_df['Age_Label'] = temp_df['Age'].astype(int).astype(str)
+        categories = [str(age) for age in range(min_age, max_age + 1)]
+        
+    temp_df['Age_Label'] = pd.Categorical(temp_df['Age_Label'], categories=categories, ordered=True)
+    x_col = 'Age_Label'
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    hue_col = 'Sex' if group_by_sex and 'Sex' in temp_df.columns else None
+    palette_custom = [COLOR_PRIMARY, COLOR_SECONDARY, "#48CAE4", "#06D6A0"] 
+    single_color = COLOR_TERTIARY
     
     if chart_type == 'Boxplot':
-        if hue_col:
-            sns.boxplot(data=temp_df, x=x_col, y='Data', hue=hue_col, palette='Set2', ax=ax, showfliers=False)
-        else:
-            sns.boxplot(data=temp_df, x=x_col, y='Data', color='#a2cffe', ax=ax, showfliers=False)
-        ax.set_ylabel('Results (Without Extreme Outliers)', fontsize=14, labelpad=10)
-    
-    elif chart_type == 'Moving Average':
-        if hue_col:
-            sns.lineplot(data=temp_df, x=x_col, y='Data', hue=hue_col, palette='Set2', marker='o', errorbar=None, ax=ax, linewidth=2, markersize=8)
-        else:
-            sns.lineplot(data=temp_df, x=x_col, y='Data', marker='o', color='#ff6666', errorbar=None, ax=ax, linewidth=2, markersize=8)
-        ax.set_ylabel('Mean Results', fontsize=14, labelpad=10)
-    
-    elif chart_type == 'Moving Median':
-        if hue_col:
-            sns.lineplot(data=temp_df, x=x_col, y='Data', hue=hue_col, palette='Set2', estimator=np.median, marker='s', errorbar=None, ax=ax, linewidth=2, markersize=8)
-        else:
-            sns.lineplot(data=temp_df, x=x_col, y='Data', estimator=np.median, marker='s', color='#2ca02c', errorbar=None, ax=ax, linewidth=2, markersize=8)
-        ax.set_ylabel('Median Results', fontsize=14, labelpad=10)
-    
-    ax.set_title(f'Distribution of {col_dados} by Age ({chart_type})', fontsize=16, fontweight='bold', pad=15)
-    ax.set_xlabel('Age (Years)', fontsize=14, labelpad=10)
-    plt.xticks(rotation=45, ha='right')
-    plt.grid(axis='y', linestyle='--', alpha=0.5)
-    
+        if hue_col: sns.boxplot(data=temp_df, x=x_col, y='Data', hue=hue_col, palette=palette_custom, ax=ax, showfliers=False)
+        else: sns.boxplot(data=temp_df, x=x_col, y='Data', color=single_color, ax=ax, showfliers=False)
+        ax.set_ylabel('Results (Without Extreme Outliers)', fontsize=12, labelpad=10)
+    elif chart_type in ['Moving Average', 'Moving Median']:
+        metric_func = np.mean if chart_type == 'Moving Average' else np.median
+        if hue_col: sns.lineplot(data=temp_df, x=x_col, y='Data', hue=hue_col, palette=palette_custom, estimator=metric_func, marker='o', errorbar=None, ax=ax, linewidth=2, markersize=8)
+        else: sns.lineplot(data=temp_df, x=x_col, y='Data', estimator=metric_func, marker='o', color=single_color, errorbar=None, ax=ax, linewidth=2, markersize=8)
+        ax.set_ylabel(f'{chart_type} Results', fontsize=12, labelpad=10)
+
+        if show_trendlines:
+            metric_str = 'mean' if chart_type == 'Moving Average' else 'median'
+            def draw_segments(df_sub, color):
+                _, _, cuts = run_harris_boyd(df_sub, 'Age', 'Data')
+                starts, ends = [0] + [c + 1 for c in cuts], cuts + [999]
+                for s, e in zip(starts, ends):
+                    mask = (df_sub['Age'] >= s) & (df_sub['Age'] <= e)
+                    if mask.sum() == 0: continue
+                    val = df_sub[mask]['Data'].mean() if metric_str == 'mean' else df_sub[mask]['Data'].median()
+                    x_positions = [categories.index(lbl) for lbl in df_sub[mask]['Age_Label'].unique() if lbl in categories]
+                    if not x_positions: continue
+                    ax.hlines(y=val, xmin=min(x_positions)-0.4, xmax=max(x_positions)+0.4, color=color, linestyle='--', linewidth=2.5, alpha=0.8, zorder=10)
+
+            if hue_col:
+                palette = sns.color_palette(palette_custom, n_colors=temp_df[hue_col].nunique())
+                for i, sex_val in enumerate(temp_df[hue_col].dropna().unique()): draw_segments(temp_df[temp_df[hue_col] == sex_val], palette[i])
+            else: draw_segments(temp_df, COLOR_SECONDARY)
+
+    ax.set_xlabel('Age (Years)', fontsize=12, labelpad=10)
+    ax.set_xticks(range(len(categories)))
+    ax.set_xticklabels(categories, rotation=90 if len(categories) > 30 else 45, ha='center' if len(categories) > 30 else 'right', fontsize=8 if len(categories) > 40 else 10)
+    plt.grid(axis='y', linestyle=':', alpha=0.6, color='#CFD8DC')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_color('#CFD8DC')
+    ax.spines['bottom'].set_color('#CFD8DC')
+    # --- Dentro da função plot_dispersion_chart ---
+# (Procure onde a legenda é configurada, próximo ao final da função)
+
+    # 1. Altere o local onde você define a legenda para colocá-la fora, à direita
     if hue_col:
-        ax.legend(title='Sex/Gender')
+        # Altere esta linha para usar bbox_to_anchor
+        # loc='upper left' e bbox_to_anchor=(1, 1) colocam a legenda no canto superior esquerdo da figura externa
+        ax.legend(title='Sex/Gender', frameon=True, facecolor='white', edgecolor='#e0e0e0',
+                  loc='upper left', bbox_to_anchor=(1.01, 1))
         
+        # Opcional: Para evitar que a legenda externa corte, use tight_layout() ajustado
+        # Ou adicione um ajuste manual na margem direita da figura
+        plt.subplots_adjust(right=0.85)
+
+    # ... (resto da função)
+    # plt.tight_layout() # Você pode manter ou comentar se plt.subplots_adjust funcionar melhor no Streamlit
     plt.tight_layout()
     return fig
 
 @st.cache_data(show_spinner="Preparing file for export...")
 def to_excel(df):
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
 @st.cache_data(show_spinner="Preparing CSV for export...")
@@ -695,11 +740,9 @@ def to_csv(df):
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
 # --- FUNÇÕES DE INTERFACE ---
-
 def handle_select_all():
     new_state = st.session_state['select_all_master_checkbox']
-    for rule in st.session_state.filter_rules:
-        rule['p_check'] = new_state
+    for rule in st.session_state.filter_rules: rule['p_check'] = new_state
 
 def reset_results_on_upload():
     if 'filtered_result' in st.session_state: del st.session_state['filtered_result']
@@ -707,85 +750,44 @@ def reset_results_on_upload():
     st.session_state.confirm_stratify = False
 
 def draw_filter_rules(sex_column_values, column_options): 
-    st.markdown("""<style>
-        .stButton>button { padding: 0.25rem 0.3rem; font-size: 0.8rem; white-space: nowrap; }
-        div[data-testid="stTextInput"] input, div[data-testid="stSelectbox"] div[data-baseweb="select"] {
-            border: 1px solid rgba(255, 75, 75, 0.15) !important;
-            border-radius: 0.25rem;
-        }
-    </style>""", unsafe_allow_html=True)
-    
-    header_cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium")
-    
-    if st.session_state.filter_rules:
-        all_checked = all(rule.get('p_check', False) for rule in st.session_state.filter_rules)
-    else:
-        all_checked = False
+    header_cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="small")
+    all_checked = all(rule.get('p_check', False) for rule in st.session_state.filter_rules) if st.session_state.filter_rules else False
 
-    header_cols[0].checkbox(
-        "Select/Unselect all",
-        value=all_checked,
-        key='select_all_master_checkbox', 
-        on_change=handle_select_all,   
-        label_visibility="collapsed"
-    )
-    
-    header_cols[1].markdown("**Column** <span title='Type the column name exactly as in the sheet. For multiple columns, separate with ;'>&#9432;</span>", unsafe_allow_html=True)
-    header_cols[2].markdown("**Operator**", unsafe_allow_html=True)
-    header_cols[3].markdown("**Value**", unsafe_allow_html=True)
-    
-    tooltip_text = "Select another operator to define an interval.\nBETWEEN: Excludes values within the interval.\nOR: Excludes values outside.\nAND: Excludes values within, without extremes."
-    tooltip_text_html = tooltip_text.replace('\n', '&#10;')
-    header_cols[5].markdown(f"**Compound Logic** <span title='{tooltip_text_html}'>&#9432;</span>", unsafe_allow_html=True)
-    
-    header_cols[6].markdown("**Condition**", unsafe_allow_html=True)
-    header_cols[7].markdown("**Actions**", unsafe_allow_html=True)
-    st.markdown("<hr style='margin-top: -0.5rem; margin-bottom: 0.5rem;'>", unsafe_allow_html=True)
 
-    ops_main = ["", ">", "<", "=", "Not equal to", "≥", "≤"]
-    ops_age = ["", ">", "<", "≥", "≤", "="]
-    ops_central_logic = ["AND", "OR", "BETWEEN"]
+    header_cols[1].markdown(f"**Column** <span title='Type the exact column name as in the sheet. Separate multiple columns with ;'>{help_icon}</span>", unsafe_allow_html=True)
+    header_cols[2].markdown(f"**Operator** <span title='Select the logical operator for the exclusion rule.'>{help_icon}</span>", unsafe_allow_html=True)
+    header_cols[3].markdown(f"**Value** <span title='Value to be evaluated. Tip: Use \"empty\" to filter blank cells.'>{help_icon}</span>", unsafe_allow_html=True)
+    header_cols[5].markdown(f"**Compound Logic** <span title='Expands the rule with AND, OR, or BETWEEN conditions.'>{help_icon}</span>", unsafe_allow_html=True)
+    header_cols[6].markdown(f"**Cond** <span title='Applies this rule conditionally based on Age or Sex.'>{help_icon}</span>", unsafe_allow_html=True)
+    header_cols[7].markdown(f"**Action** <span title='Clone (C) or Delete (X) this rule.'>{help_icon}</span>", unsafe_allow_html=True)
+
+    ops_main, ops_age, ops_central_logic = ["", ">", "<", "=", "Not equal to", "≥", "≤"], ["", ">", "<", "≥", "≤", "="], ["AND", "OR", "BETWEEN"]
 
     for i, rule in enumerate(st.session_state.filter_rules):
         with st.container():
-            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="medium") 
-            
-            rule['p_check'] = cols[0].checkbox(
-                f"Activate rule {rule['id']}", 
-                value=rule.get('p_check', True), 
-                key=f"p_check_{rule['id']}", 
-                label_visibility="collapsed"
-            )
-            
-            rule['p_col'] = cols[1].text_input(
-                "Column", 
-                value=rule.get('p_col', ''), 
-                key=f"p_col_{rule['id']}", 
-                label_visibility="collapsed",
-                placeholder="Ex: Exam.COL"
-            )
-            
-            rule['p_op1'] = cols[2].selectbox("Operator 1", ops_main, index=ops_main.index(rule.get('p_op1', '=')) if rule.get('p_op1') in ops_main else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
-            rule['p_val1'] = cols[3].text_input("Value 1", value=rule.get('p_val1', ''), key=f"p_val1_{rule['id']}", label_visibility="collapsed")
+            cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="small") 
+            rule['p_check'] = cols[0].checkbox(f"Act {rule['id']}", value=rule.get('p_check', True), key=f"p_check_{rule['id']}", label_visibility="collapsed")
+            rule['p_col'] = cols[1].text_input("Column", value=rule.get('p_col', ''), key=f"p_col_{rule['id']}", label_visibility="collapsed", placeholder="Ex: Exam.COL")
+            rule['p_op1'] = cols[2].selectbox("Op 1", ops_main, index=ops_main.index(rule.get('p_op1', '=')) if rule.get('p_op1') in ops_main else 0, key=f"p_op1_{rule['id']}", label_visibility="collapsed")
+            rule['p_val1'] = cols[3].text_input("Val 1", value=rule.get('p_val1', ''), key=f"p_val1_{rule['id']}", label_visibility="collapsed")
             rule['p_expand'] = cols[4].checkbox("+", value=rule.get('p_expand', False), key=f"p_expand_{rule['id']}", label_visibility="collapsed")
             
             with cols[5]:
                 if rule['p_expand']:
                     exp_cols = st.columns([3, 2, 2])
-                    rule['p_op_central'] = exp_cols[0].selectbox("Logic", ops_central_logic, index=ops_central_logic.index(rule.get('p_op_central', 'OR')) if rule.get('p_op_central') in ops_central_logic else 0, key=f"p_op_central_{rule['id']}", label_visibility="collapsed")
-                    rule['p_op2'] = exp_cols[1].selectbox("Operator 2", ops_main, index=ops_main.index(rule.get('p_op2', '>')) if rule.get('p_op2') in ops_main else 0, key=f"p_op2_{rule['id']}", label_visibility="collapsed")
-                    rule['p_val2'] = exp_cols[2].text_input("Value 2", value=rule.get('p_val2', ''), key=f"p_val2_{rule['id']}", label_visibility="collapsed")
+                    rule['p_op_central'] = exp_cols[0].selectbox("Log", ops_central_logic, index=ops_central_logic.index(rule.get('p_op_central', 'OR')) if rule.get('p_op_central') in ops_central_logic else 0, key=f"p_op_central_{rule['id']}", label_visibility="collapsed")
+                    rule['p_op2'] = exp_cols[1].selectbox("Op 2", ops_main, index=ops_main.index(rule.get('p_op2', '>')) if rule.get('p_op2') in ops_main else 0, key=f"p_op2_{rule['id']}", label_visibility="collapsed")
+                    rule['p_val2'] = exp_cols[2].text_input("Val 2", value=rule.get('p_val2', ''), key=f"p_val2_{rule['id']}", label_visibility="collapsed")
 
-            with cols[6]:
-                rule['c_check'] = st.checkbox("Condition", value=rule.get('c_check', False), key=f"c_check_{rule['id']}")
+            with cols[6]: rule['c_check'] = st.checkbox("Cond", value=rule.get('c_check', False), key=f"c_check_{rule['id']}", label_visibility="collapsed")
             
             action_cols = cols[7].columns(2)
-            if action_cols[0].button("Clone", key=f"clone_{rule['id']}"):
+            if action_cols[0].button("C", key=f"clone_{rule['id']}", help="Clone rule"):
                 new_rule = copy.deepcopy(rule)
                 new_rule['id'] = str(uuid.uuid4())
                 st.session_state.filter_rules.insert(i + 1, new_rule)
                 st.rerun()
-            if action_cols[1].button("X", key=f"del_filter_{rule['id']}"):
+            if action_cols[1].button("X", key=f"del_filter_{rule['id']}", help="Delete rule"):
                 st.session_state.filter_rules.pop(i)
                 st.rerun()
 
@@ -803,74 +805,78 @@ def draw_filter_rules(sex_column_values, column_options):
                             rule['c_idade_op2'] = age_cols[3].selectbox("Age Op 2", ops_age, index=ops_age.index(rule.get('c_idade_op2','<')) if rule.get('c_idade_op2') in ops_age else 0, key=f"c_idade_op2_{rule['id']}", label_visibility="collapsed")
                             rule['c_idade_val2'] = age_cols[4].text_input("Age Val 2", value=rule.get('c_idade_val2',''), key=f"c_idade_val2_{rule['id']}", label_visibility="collapsed")
                     
-                    rule['c_sexo_check'] = cond_cols[4].checkbox("Sex/Gender", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule['id']}")
+                    rule['c_sexo_check'] = cond_cols[4].checkbox("Sex", value=rule.get('c_sexo_check', False), key=f"c_sexo_check_{rule['id']}")
                     with cond_cols[5]:
                         if rule['c_sexo_check']:
                             sex_options = [v for v in sex_column_values if v]
                             current_sex = rule.get('c_sexo_val')
                             sex_index = sex_options.index(current_sex) if current_sex in sex_options else None
-                            rule['c_sexo_val'] = st.selectbox("Sex Value", options=sex_options, index=sex_index, placeholder="Select value", key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
-        st.markdown("---")
+                            rule['c_sexo_val'] = st.selectbox("Sex Val", options=sex_options, index=sex_index, placeholder="Select value", key=f"c_sexo_val_{rule['id']}", label_visibility="collapsed")
+        st.markdown("<hr style='border-color: rgba(7, 59, 76, 0.1); margin-top: 0.2rem; margin-bottom: 0.5rem;'>", unsafe_allow_html=True)
 
 def draw_stratum_rules():
-    st.markdown("""<style>.stButton>button {padding: 0.25rem 0.3rem; font-size: 0.8rem;}</style>""", unsafe_allow_html=True)
     ops_stratum = ["", ">", "<", "≥", "≤"]
-
     for i, stratum_rule in enumerate(st.session_state.stratum_rules):
         with st.container():
             cols = st.columns([2, 1, 1, 0.5, 1, 1, 1])
             cols[0].write(f"**Age Range {i+1}:**")
             stratum_rule['op1'] = cols[1].selectbox("Operator 1", ops_stratum, index=ops_stratum.index(stratum_rule.get('op1', '')) if stratum_rule.get('op1') in ops_stratum else 0, key=f"s_op1_{stratum_rule['id']}", label_visibility="collapsed")
             stratum_rule['val1'] = cols[2].text_input("Value 1", value=stratum_rule.get('val1', ''), key=f"s_val1_{stratum_rule['id']}", label_visibility="collapsed")
-            cols[3].markdown("<p style='text-align: center; margin-top: 25px;'>AND</p>", unsafe_allow_html=True)
+            cols[3].markdown("<p style='text-align: center; margin-top: 5px;'>AND</p>", unsafe_allow_html=True)
             stratum_rule['op2'] = cols[4].selectbox("Operator 2", ops_stratum, index=ops_stratum.index(stratum_rule.get('op2', '')) if stratum_rule.get('op2') in ops_stratum else 0, key=f"s_op2_{stratum_rule['id']}", label_visibility="collapsed")
             stratum_rule['val2'] = cols[5].text_input("Value 2", value=stratum_rule.get('val2', ''), key=f"s_val2_{stratum_rule['id']}", label_visibility="collapsed")
             if cols[6].button("X", key=f"del_stratum_{stratum_rule['id']}"):
                 if len(st.session_state.stratum_rules) > 1:
                     st.session_state.stratum_rules.pop(i)
                     st.rerun()
-                else:
-                    st.warning("Cannot delete the last age range.")
-        st.markdown("---")
+                else: st.warning("Cannot delete the last age range.")
 
 def main():
     if 'lgpd_accepted' not in st.session_state: st.session_state.lgpd_accepted = False
+    
+    # --- TELA DE ENTRADA (LGPD) ---
     if not st.session_state.lgpd_accepted:
+        if logo_base64:
+            st.markdown(f'<div style="display: flex; justify-content: center; margin-top: 1rem; margin-bottom: 2rem;"><img src="data:image/png;base64,{logo_base64}" width="220"></div>', unsafe_allow_html=True)
+        
         st.title("Welcome to Data Sift!")
         st.markdown("This program is designed to optimize your work with large volumes of data. Please read the terms below.")
         st.divider()
+
         st.header("Terms of Use and Data Protection Compliance")
         st.markdown(GDPR_TERMS) 
         accepted = st.checkbox("By checking this box, I confirm that the data provided is anonymized.")
-        if st.button("Continue", disabled=not accepted):
+        if st.button("Continue", type="primary", disabled=not accepted):
             st.session_state.lgpd_accepted = True
             st.rerun()
         return
 
+    # --- INICIALIZAÇÃO DE VARIÁVEIS ---
     if 'filter_rules' not in st.session_state: 
         st.session_state.filter_rules = copy.deepcopy(DEFAULT_FILTERS)
-
-    if 'stratum_rules' not in st.session_state: st.session_state.stratum_rules = [{'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}]
+    if 'stratum_rules' not in st.session_state: 
+        st.session_state.stratum_rules = [{'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''}]
     
+    # --- BARRA LATERAL (Manual) ---
     with st.sidebar:
-        st.title("User Manual")
-        topic = st.selectbox("Select a topic", list(MANUAL_CONTENT.keys()), label_visibility="collapsed")
+        if logo_base64:
+            st.markdown(f'<div style="display: flex; justify-content: center; margin-bottom: 1rem;"><img src="data:image/png;base64,{logo_base64}" width="150"></div>', unsafe_allow_html=True)
+        else:
+            st.markdown("<h1 style='text-align: center;'>DataSift</h1>", unsafe_allow_html=True)
+        st.markdown("---")
+        topic = st.selectbox("User Manual", list(MANUAL_CONTENT.keys()))
         st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
 
-    st.title("Data Sift")
+    # --- LOGO PRINCIPAL ---
+    if logo_base64:
+        st.markdown(f'<div style="display: flex; justify-content: center; margin-top: 1rem; margin-bottom: 2rem;"><img src="data:image/png;base64,{logo_base64}" width="220"></div>', unsafe_allow_html=True)
 
-    with st.expander("1. Global Settings", expanded=True):
-        uploaded_file = st.file_uploader(
-            "Select spreadsheet", 
-            type=['csv', 'xlsx', 'xls', 'zip'],
-            on_change=reset_results_on_upload,
-            key="file_uploader_widget"
-        )
+    # --- CARD 1: GLOBAL SETTINGS ---
+    with st.expander("📁 1. Global Settings (Upload Spreadsheet)", expanded=True):
+        uploaded_file = st.file_uploader("Select spreadsheet", type=['csv', 'xlsx', 'xls', 'zip'], on_change=reset_results_on_upload, key="file_uploader_widget", label_visibility="collapsed")
 
-        if "dados_salvos" not in st.session_state:
-            st.session_state.dados_salvos = None
-        if "id_arquivo_atual" not in st.session_state:
-            st.session_state.id_arquivo_atual = None
+        if "dados_salvos" not in st.session_state: st.session_state.dados_salvos = None
+        if "id_arquivo_atual" not in st.session_state: st.session_state.id_arquivo_atual = None
 
         if uploaded_file is not None:
             if st.session_state.id_arquivo_atual != uploaded_file.file_id:
@@ -886,7 +892,7 @@ def main():
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.selectbox("Age Column", options=column_options, key="col_idade", index=None, placeholder="Select Age column")
         with c2: st.selectbox("Sex/Gender Column", options=column_options, key="col_sexo", index=None, placeholder="Select Sex/Gender")
-        with c3: st.selectbox("Data Column (Harris-Boyd)", options=column_options, key="col_dados", index=None, placeholder="Select Data Column")
+        with c3: st.selectbox("Data Column", options=column_options, key="col_dados", index=None, placeholder="Select Data Column")
         with c4: st.selectbox("Output Format", ["CSV (.csv)", "Excel (.xlsx)"], key="output_format")
 
         st.session_state.sex_column_is_valid = True
@@ -900,8 +906,7 @@ def main():
                     if len(unique_sex_values) > 10:
                         st.warning(f"Column '{st.session_state.col_sexo}' has too many unique values.")
                         st.session_state.sex_column_is_valid = False
-                    else:
-                        sex_column_values = [""] + list(unique_sex_values)
+                    else: sex_column_values = [""] + list(unique_sex_values)
                 except KeyError: st.session_state.sex_column_is_valid = False
 
             if st.session_state.col_idade:
@@ -913,22 +918,33 @@ def main():
                 except KeyError: st.session_state.age_column_is_valid = False
 
     is_ready_for_processing = st.session_state.age_column_is_valid and st.session_state.sex_column_is_valid
+    
+    # --- SISTEMA DE ABAS (TABS) ---
     tab_filter, tab_stratify = st.tabs(["2. Filter Tool", "3. Stratification Tool"])
 
+    # --- ABA 1: FILTER TOOL (LAVE) ---
     with tab_filter:
-        st.header("Exclusion Rules")
+        st.markdown('<div class="card-with-header">', unsafe_allow_html=True)
+        st.markdown(f'<div class="card-header-bar">Exclusion Filter Configuration</div>', unsafe_allow_html=True)
+        st.markdown('<div class="card-content-area">', unsafe_allow_html=True)
         
         if st.session_state.get('filter_error'):
             st.error(st.session_state.filter_error)
             del st.session_state['filter_error']
             
         draw_filter_rules(sex_column_values, column_options)
-        if st.button("Add New Filter Rule"):
-            st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''})
-            st.rerun()
         
+        col_btn_add, col_space = st.columns([2, 8])
+        with col_btn_add:
+            if st.button("+ Add New Filter Rule", type="secondary", use_container_width=True):
+                st.session_state.filter_rules.append({'id': str(uuid.uuid4()), 'p_check': True, 'p_col': '', 'p_op1': '<', 'p_val1': '', 'p_expand': False, 'p_op_central': 'OR', 'p_op2': '>', 'p_val2': '', 'c_check': False, 'c_idade_check': False, 'c_idade_op1': '>', 'c_idade_val1': '', 'c_idade_op2': '<', 'c_idade_val2': '', 'c_sexo_check': False, 'c_sexo_val': ''})
+                st.rerun()
+                
+        st.markdown('</div></div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
         if st.button("Generate Filtered Sheet", type="primary", use_container_width=True, disabled=not is_ready_for_processing):
-            if df is None: st.error("Please upload a spreadsheet first.")
+            if df is None: st.error("Please upload a spreadsheet in Global Settings first.")
             else:
                 with st.spinner("Applying filters..."):
                     progress_bar = st.progress(0, text="Initializing...")
@@ -940,124 +956,241 @@ def main():
                         file_bytes = to_excel(filtered_df) if is_excel else to_csv(filtered_df)
                         timestamp = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S")
                         st.session_state.filtered_result = (file_bytes, f"Filtered_Sheet_{timestamp}.{'xlsx' if is_excel else 'csv'}")
-                    else: st.success("No rows remaining.")
+                    else: st.success("No rows remaining after filters applied.")
 
         if 'filtered_result' in st.session_state:
-            st.download_button("Download Filtered Sheet", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True)
+            st.download_button("⬇️ Download Final Filtered Sheet", data=st.session_state.filtered_result[0], file_name=st.session_state.filtered_result[1], use_container_width=True, type="secondary")
+        st.markdown("<br>", unsafe_allow_html=True)
 
+   # --- ABA 2: ANÁLISE VISUO-ESTATÍSTICA E ESTRATIFICAÇÃO ---
     with tab_stratify:
-        st.header("Harris-Boyd Study (Stratification Suggestion)")
-        
-        if st.session_state.get('stratification_error'):
-            st.error(st.session_state.stratification_error)
-            del st.session_state['stratification_error']
-            
+        st.markdown('<div class="card-with-header">', unsafe_allow_html=True)
+        st.markdown(f'<div class="card-header-bar">Visual-Statistical Analysis and Stratification</div>', unsafe_allow_html=True)
+        st.markdown('<div class="card-content-area">', unsafe_allow_html=True)
+
         if df is not None:
             if not st.session_state.col_idade or not st.session_state.col_dados:
-                st.info("⚠️ To view the Harris-Boyd study, make sure to fill in the **'Age Column'** and **'Data Column (Harris-Boyd)'** in the **Global Settings** section.")
+                st.info("⚠️ Select the **'Age Column'** and **'Data Column'** in Global Settings to enable visual analysis and Harris-Boyd stratification.")
             else:
-                with st.spinner("Calculating and generating interpretative report..."):
-                    texto_interpretativo, raw_df = run_harris_boyd(df, st.session_state.col_idade, st.session_state.col_dados)
-                    st.markdown(texto_interpretativo)
-                    
-                    if not raw_df.empty:
-                        with st.expander("View full statistical data (Advanced Mode)"):
-                            st.dataframe(raw_df, use_container_width=True, hide_index=True)
-                            
-            st.markdown("---")
-            st.header("📊 Visual Dispersion Analysis")
-            st.markdown("Evaluate the variation of results by generating the interactive chart below.")
-            
-            if st.session_state.col_idade and st.session_state.col_dados:
-                col_chart1, col_chart2 = st.columns(2)
-                chart_type = col_chart1.selectbox("Chart Type:", ["Boxplot", "Moving Average", "Moving Median"])
-                intervalo_plot = col_chart2.number_input("Age interval size (years):", min_value=1, max_value=20, value=5, step=1)
+                col_grafico, col_hboyd = st.columns([2.8, 1.2], gap="large")
                 
-                group_by_sex = False
+                group_by_sex_plot = False
                 selected_sexes_for_plot = []
-                
-                if st.session_state.col_sexo and st.session_state.sex_column_is_valid:
-                    st.markdown("##### Sex/Gender Filtering & Grouping")
-                    col_g1, col_g2 = st.columns([1, 2])
-                    group_by_sex = col_g1.checkbox("Group Chart by Sex/Gender", value=False)
+
+                # --- Na função main(), dentro de with col_grafico: ---
+
+                with col_grafico:
+                    # Ajustamos as colunas: c3 (pequena para a caixa) e c4 (maior para o texto+ícone)
+                    c1, c2, c3, c4, c5 = st.columns([1, 1, 0.15, 0.85, 1])
                     
-                    sex_options_for_plot = [v for v in sex_column_values if v]
-                    selected_sexes_for_plot = col_g2.multiselect(
-                        "Filter by Sex/Gender (Leave empty for all):", 
-                        options=sex_options_for_plot, 
-                        default=sex_options_for_plot
-                    )
-                    if not selected_sexes_for_plot:
-                         selected_sexes_for_plot = sex_options_for_plot
-                else:
-                    st.info("💡 Tip: Select a Sex/Gender column in Global Settings to enable gender grouping.")
+                    chart_type = c1.selectbox("Chart Type", ["Boxplot", "Moving Average", "Moving Median"], label_visibility="collapsed")
+                    intervalo_plot = c2.number_input("Age interval", min_value=1, max_value=20, value=5, step=1, label_visibility="collapsed", help="Age interval in years")
+                    
+                    show_trendlines = False
+                    if chart_type in ['Moving Average', 'Moving Median']:
+                        # 1. A CAIXINHA FICA NA ESQUERDA (c3)
+                        show_trendlines = c3.checkbox("chk_plateau", value=True, label_visibility="collapsed")
+                        
+                        # 2. O TEXTO + ÍCONE FICA NA DIREITA (c4), puxado um pouco para perto da caixa
+                        # Usamos 'font-size: 1rem' e 'color: inherit' para imitar a fonte nativa do Streamlit
+                        c4.markdown(f"<div style='font-size: 1rem; color: inherit; margin-top: 5px; margin-left: -15px;'>Plateau Lines {HELP_ICON}</div>", unsafe_allow_html=True)
+                        
+                    if st.session_state.col_sexo and st.session_state.sex_column_is_valid:
+                        group_by_sex_plot = c5.checkbox("Group by Sex", value=False)
 
-                if st.button("Generate Chart", type="primary", use_container_width=True):
-                    with st.spinner("Drawing chart..."):
-                        fig = plot_dispersion_chart(
-                            df, 
-                            st.session_state.col_idade, 
-                            st.session_state.col_dados, 
-                            st.session_state.col_sexo,
-                            intervalo_plot, 
-                            chart_type,
-                            group_by_sex,
-                            selected_sexes_for_plot
+                        sex_options_for_plot = [v for v in sex_column_values if v]
+                    
+                        selected_sexes_for_plot = st.multiselect(
+                            "Filter specific sexes for the chart:", 
+                            options=sex_options_for_plot, 
+                            default=sex_options_for_plot
                         )
-                        if fig:
-                            st.pyplot(fig)
+                        
+                        if not selected_sexes_for_plot:
+                            selected_sexes_for_plot = sex_options_for_plot
+                    
+                    fig = plot_dispersion_chart(
+                        df, st.session_state.col_idade, st.session_state.col_dados, st.session_state.col_sexo,
+                        intervalo_plot, chart_type, group_by_sex_plot, selected_sexes_for_plot, show_trendlines
+                    )
+                    if fig: st.pyplot(fig)
+                    else: st.warning("Not enough valid data to generate chart.")
+
+                # Variáveis para armazenar os resultados globais e construir as tabelas de baixo
+                df_possiveis_global_list = []
+                df_ideais_global_list = []
+
+                # Função auxiliar para gerar as mini-listas no Card Escuro (com limite de 5 e botão expandir)
+                def render_mini_tabela(titulo, cuts, max_age):
+                    st.markdown(f"<p style='font-size:0.85rem; color:#41A0C4; font-weight: 600; margin-bottom:5px; margin-top:15px; text-transform: uppercase;'>{titulo}:</p>", unsafe_allow_html=True)
+                    if not cuts:
+                        st.markdown(f"<p style='font-weight:bold; font-size:0.95rem; color:{COLOR_SECONDARY};'>No stratification needed</p>", unsafe_allow_html=True)
+                        return
+                    
+                    ranges = []
+                    last_age = 0
+                    for cut in cuts:
+                        ranges.append(f"{last_age} - {cut} years")
+                        last_age = cut + 1
+                    ranges.append(f"{last_age} - {max_age} years")
+                    
+                    # Imprime os 5 primeiros na tela
+                    for r in ranges[:5]:
+                        st.markdown(f"<p style='font-weight:bold; font-size:1.0rem; color:{COLOR_SECONDARY}; margin-bottom:2px;'>{r}</p>", unsafe_allow_html=True)
+                    
+                    # Se tiver mais de 5, coloca no Expander do Streamlit
+                    if len(ranges) > 5:
+                        with st.expander(f" (+{len(ranges)-5} groups)"):
+                            for r in ranges[5:]:
+                                # Cor escura porque o fundo do expander é claro
+                                st.markdown(f"<p style='font-weight:bold; font-size:0.95rem; color:#073B4C; margin-bottom:2px;'>{r}</p>", unsafe_allow_html=True)
+
+                with col_hboyd:
+                    st.markdown('<div class="card-header-bar" style="margin: -1rem -1rem 1rem -1rem; border-radius: 5px 5px 0 0; padding: 10px 15px; font-size: 1.1rem; text-align: center;">Stratification Studies</div>', unsafe_allow_html=True)
+                    
+                    with st.spinner("Calculating..."):
+                        if group_by_sex_plot and st.session_state.col_sexo:
+                            # -------------------------------------------------
+                            # CENÁRIO A: ESTRATIFICADO POR SEXO
+                            # -------------------------------------------------
+                            sex_options_hboyd = [v for v in sex_column_values if v]
+                            for sex_val in sex_options_hboyd:
+                                st.markdown(f"<hr style='border-color: rgba(7, 59, 76, 0.2); margin: 10px 0;'><p style='font-size:1.0rem; color:{COLOR_PRIMARY}; margin-bottom:2px;'><b>Sex: {sex_val}</b></p>", unsafe_allow_html=True)
+                                sub_df = df[df[st.session_state.col_sexo].astype(str) == str(sex_val)].copy()
+
+                                if sub_df.empty:
+                                    st.markdown("<p style='font-weight:bold; font-size:0.9rem;'>No data</p>", unsafe_allow_html=True)
+                                    continue
+
+                                df_possiveis, df_ideais, cuts_ideais = run_harris_boyd(sub_df, st.session_state.col_idade, st.session_state.col_dados)
+                                max_age_sub = int(pd.to_numeric(sub_df[st.session_state.col_idade], errors='coerce').max()) if not sub_df.empty else 100
+                                cuts_possiveis = df_possiveis['age'].tolist() if not df_possiveis.empty else []
+
+                                # Renderiza as duas abordagens no Card
+                                render_mini_tabela("1. Harris-Boyd (Statistical approach)", cuts_possiveis, max_age_sub)
+                                render_mini_tabela("2. Equivalence limits (Practical approach)", cuts_ideais, max_age_sub)
+
+                                # Guarda para exibir nas tabelonas globais depois
+                                if not df_possiveis.empty:
+                                    df_p = df_possiveis.copy()
+                                    df_p.insert(0, 'Sex', str(sex_val))
+                                    df_possiveis_global_list.append(df_p)
+                                if not df_ideais.empty:
+                                    df_i = df_ideais.copy()
+                                    df_i.insert(0, 'Sex', str(sex_val))
+                                    df_ideais_global_list.append(df_i)
+
+                            st.markdown("</div>", unsafe_allow_html=True)
+
                         else:
-                            st.warning("Not enough valid data in the selected columns to generate the chart.")
-            else:
-                st.info("⚠️ Select the Age column and Data column in global settings to enable the chart.")
+                            # -------------------------------------------------
+                            # CENÁRIO B: VISÃO GERAL (Toda a população)
+                            # -------------------------------------------------
+                            df_possiveis, df_ideais, cuts_ideais = run_harris_boyd(df, st.session_state.col_idade, st.session_state.col_dados)
+                            max_age_full = int(pd.to_numeric(df[st.session_state.col_idade], errors='coerce').max()) if df is not None else 100
+                            cuts_possiveis = df_possiveis['age'].tolist() if not df_possiveis.empty else []
+
+                            render_mini_tabela("1. Harris-Boyd (Statistical approach)", cuts_possiveis, max_age_full)
+                            render_mini_tabela("2. Equivalence limits (Practical approach)", cuts_ideais, max_age_full)
+
+                            if not df_possiveis.empty:
+                                df_possiveis_global_list.append(df_possiveis)
+                            if not df_ideais.empty:
+                                df_ideais_global_list.append(df_ideais)
+
+                            st.markdown("</div>", unsafe_allow_html=True)
+
+                # =========================================================================
+                # EXIBIÇÃO DOS QUADROS INFERIORES: FORA DAS COLUNAS (LARGURA TOTAL)
+                # =========================================================================
+                df_possiveis_global = pd.concat(df_possiveis_global_list, ignore_index=True) if df_possiveis_global_list else pd.DataFrame()
+                df_ideais_global = pd.concat(df_ideais_global_list, ignore_index=True) if df_ideais_global_list else pd.DataFrame()
+
+                st.markdown("<div style='margin-top: 35px;'></div>", unsafe_allow_html=True)
+                
+                if not df_possiveis_global.empty:
+                    # --- GAVETA OCULTA PARA AS TABELAS DETALHADAS ---
+                    with st.expander("📊 View Detailed Stratification Data Tables", expanded=False):
+                        
+                        # --- QUADRO 1: ABORDAGEM ESTATÍSTICA ---
+                        st.markdown("<h4 style='color: #118AB2; font-size:1.2rem; font-weight:bold; margin-top: 10px; margin-bottom: 2px;'>1. Statistical approach (Harris-Boyd)</h4>", unsafe_allow_html=True)
+                        st.markdown("<p style='font-size:0.88rem; color:#666; margin-bottom:12px;'>Displays all candidate ages where the Z-test or Standard Deviation Ratio detects pure statistical significance for classification.</p>", unsafe_allow_html=True)
+                        
+                        cols_to_show_pos = ['Age Cutoff', 'Z-score', 'SD Ratio', 'Mean (<= Cutoff)', 'Mean (> Cutoff)']
+                        if group_by_sex_plot: cols_to_show_pos.insert(0, 'Sex')
+                        st.dataframe(df_possiveis_global[cols_to_show_pos], use_container_width=True, hide_index=True)
+
+                        # --- QUADRO 2: ABORDAGEM PRÁTICA ---
+                        st.markdown("<h4 style='color: #073B4C; font-size:1.2rem; font-weight:bold; margin-top: 30px; margin-bottom: 2px;'>2. Practical approach (Equivalence limits)</h4>", unsafe_allow_html=True)
+                        st.markdown("<p style='font-size:0.88rem; color:#666; margin-bottom:12px;'>Ideal cut-offs proposed after grouping close ages that do not exceed the Coefficient of Variation (CV) limit.</p>", unsafe_allow_html=True)
+                        
+                        cols_to_show_ideal = ['Age Cutoff', 'Diff %', 'Mean (<= Cutoff)', 'Mean (> Cutoff)']
+                        if group_by_sex_plot: cols_to_show_ideal.insert(0, 'Sex')
+                        st.dataframe(df_ideais_global[cols_to_show_ideal], use_container_width=True, hide_index=True)
+                
+                else:
+                    st.info("The statistical model did not find sufficient variance to justify creating age ranges based on this data.")
+
+                # --- SEÇÃO DE ESTRATIFICAÇÃO (Geração de Planilhas) ---
+                st.markdown("<hr style='border-color: rgba(7, 59, 76, 0.1); margin: 2.5rem 0;'>", unsafe_allow_html=True)
+                st.markdown(f"<h3 style='color: {COLOR_PRIMARY}; font-size: 1.2rem;'>Generate Stratified Sheets</h3>", unsafe_allow_html=True)
+                
+                s_col1, s_col2 = st.columns([1, 1])
+                with s_col1:
+                    st.write("**Age Range Definitions**")
+                    draw_stratum_rules()
+                    if st.button("Add Age Range", type="secondary"):
+                        st.session_state.stratum_rules.append({'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''})
+                        st.rerun()
+
+                with s_col2:
+                    if st.session_state.sex_column_is_valid and sex_column_values:
+                        st.write("**Sex/Gender Filtering**")
+                        if 'strat_gender_selection' not in st.session_state: 
+                            st.session_state.strat_gender_selection = {val: True for val in sex_column_values if val}
+                        cols = st.columns(min(len(sex_column_values), 3))
+                        col_idx = 0
+                        for gender_val in sex_column_values:
+                            if not gender_val: continue
+                            st.session_state.strat_gender_selection[gender_val] = cols[col_idx].checkbox(
+                                str(gender_val), 
+                                value=st.session_state.strat_gender_selection.get(gender_val, True), 
+                                key=f"strat_check_{gender_val}"
+                            )
+                            col_idx = (col_idx + 1) % len(cols)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("Execute Stratification Splitting", type="secondary", use_container_width=True):
+                    st.session_state.confirm_stratify = True
+                    st.rerun()
+
+                if st.session_state.get('confirm_stratify', False):
+                    st.warning("Ensure you are stratifying the CORRECT file. Do you wish to proceed?")
+                    c1, c2 = st.columns(2)
+                    if c1.button("Yes, split data", type="primary"):
+                        with st.spinner("Generating strata..."):
+                            progress_bar = st.progress(0, text="Initializing...")
+                            processor = get_data_processor()
+                            age_rules = [r for r in st.session_state.stratum_rules if r.get('val1')]
+                            sex_rules = [{'value': gender_val, 'name': str(gender_val)} for gender_val, is_selected in st.session_state.get('strat_gender_selection', {}).items() if is_selected]
+                            st.session_state.stratified_results = processor.apply_stratification(df.copy(), {'ages': age_rules, 'sexes': sex_rules}, {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}, progress_bar)
+                        st.session_state.confirm_stratify = False
+                        st.rerun()
+                    if c2.button("Cancel"):
+                        st.session_state.confirm_stratify = False
+                        st.rerun()
+
+                if st.session_state.get('stratified_results'):
+                    st.success(f"Successfully generated {len(st.session_state.stratified_results)} files!")
+                    is_excel = "Excel" in st.session_state.output_format
+                    for filename, df_to_download in st.session_state.stratified_results.items():
+                        file_bytes = to_excel(df_to_download) if is_excel else to_csv(df_to_download)
+                        st.download_button(f"📄 Download {filename}", data=file_bytes, file_name=f"{filename}.{'xlsx' if is_excel else 'csv'}", key=f"dl_{filename}", type="secondary")
+
         else:
-            st.info("⚠️ Upload a spreadsheet in 'Global Settings' to use this function.")
-        
-        st.markdown("---")
-
-        st.header("Stratification Options")
-        if st.session_state.sex_column_is_valid and sex_column_values:
-            if 'strat_gender_selection' not in st.session_state: st.session_state.strat_gender_selection = {val: True for val in sex_column_values if val}
-            cols = st.columns(min(len(sex_column_values), 5))
-            col_idx = 0
-            for gender_val in sex_column_values:
-                if not gender_val: continue
-                st.session_state.strat_gender_selection[gender_val] = cols[col_idx].checkbox(str(gender_val), value=st.session_state.strat_gender_selection.get(gender_val, True), key=f"strat_check_{gender_val}")
-                col_idx = (col_idx + 1) % len(cols)
-
-        st.header("Age Range Definitions")
-        draw_stratum_rules()
-        if st.button("Add Age Range"):
-            st.session_state.stratum_rules.append({'id': str(uuid.uuid4()), 'op1': '', 'val1': '', 'op2': '', 'val2': ''})
-            st.rerun()
-        
-        if st.button("Generate Stratified Sheets", type="primary", use_container_width=True, disabled=not is_ready_for_processing):
-            st.session_state.confirm_stratify = True
-            st.rerun()
-
-        if st.session_state.get('confirm_stratify', False):
-            st.warning("Do you confirm this is the FILTERED version?")
-            c1, c2 = st.columns(2)
-            if c1.button("Yes, continue"):
-                if df is not None:
-                    with st.spinner("Generating strata..."):
-                        progress_bar = st.progress(0, text="Initializing...")
-                        processor = get_data_processor()
-                        age_rules = [r for r in st.session_state.stratum_rules if r.get('val1')]
-                        sex_rules = [{'value': gender_val, 'name': str(gender_val)} for gender_val, is_selected in st.session_state.get('strat_gender_selection', {}).items() if is_selected]
-                        st.session_state.stratified_results = processor.apply_stratification(df, {'ages': age_rules, 'sexes': sex_rules}, {"coluna_idade": st.session_state.col_idade, "coluna_sexo": st.session_state.col_sexo}, progress_bar)
-                st.session_state.confirm_stratify = False
-                st.rerun()
-            if c2.button("No, cancel"):
-                st.session_state.confirm_stratify = False
-                st.rerun()
-
-        if st.session_state.get('stratified_results'):
-            st.markdown("---"); st.subheader(f"Files ({len(st.session_state.stratified_results)} generated)")
-            is_excel = "Excel" in st.session_state.output_format
-            for filename, df_to_download in st.session_state.stratified_results.items():
-                file_bytes = to_excel(df_to_download) if is_excel else to_csv(df_to_download)
-                st.download_button(f"Download {filename}", data=file_bytes, file_name=f"{filename}.{'xlsx' if is_excel else 'csv'}", key=f"dl_{filename}")
+            st.info("⚠️ Please upload a spreadsheet to access the analysis and stratification tools.")
+            
+        st.markdown('</div></div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
