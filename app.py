@@ -893,8 +893,34 @@ def to_csv(df):
     return df.to_csv(index=False, sep=';', decimal=',', encoding='utf-8-sig').encode('utf-8-sig')
 
 # --- USER INTERFACE BUILDER FUNCTIONS ---
-def draw_filter_rules(sex_column_values, column_options): 
+def draw_filter_rules(sex_column_values, column_options):
+    # --- MASTER CHECKBOX ---
+    # Sits at the top of the activation column and reflects/controls all rules
+    # at once (select-all idiom). Kept in sync every run: if every rule is
+    # active it shows checked; toggling it activates/deactivates all rules.
+    # Read each rule's live widget state (p_check_<id>), which is already
+    # updated at the top of the run, rather than the rule dict (only refreshed
+    # later inside the loop) — otherwise the master lags one interaction behind.
+    if st.session_state.filter_rules:
+        st.session_state["master_filter_check"] = all(
+            st.session_state.get(f"p_check_{r['id']}", r.get('p_check', True))
+            for r in st.session_state.filter_rules
+        )
+
+    def _toggle_all_filter_rules():
+        new_val = st.session_state.master_filter_check
+        for r in st.session_state.filter_rules:
+            r['p_check'] = new_val
+            st.session_state[f"p_check_{r['id']}"] = new_val
+
     header_cols = st.columns([0.5, 3, 2, 2, 0.5, 3, 1.2, 1.5], gap="small")
+    header_cols[0].checkbox(
+        "Toggle all rules",
+        key="master_filter_check",
+        on_change=_toggle_all_filter_rules,
+        help="Activate or deactivate all filter rules at once.",
+        label_visibility="collapsed",
+    )
     header_cols[1].markdown(f"**Column** {make_help_icon('The name of the column where the filter will be applied.')}", unsafe_allow_html=True)
     header_cols[2].markdown(f"**Operator** {make_help_icon('Defines the rule logic to set exclusion ranges.')}", unsafe_allow_html=True)
     header_cols[3].markdown(f"**Value** {make_help_icon('The target value to trigger the exclusion.')}", unsafe_allow_html=True)
