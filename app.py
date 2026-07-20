@@ -1037,8 +1037,14 @@ def main():
         if logo_base64: st.markdown(f'<div style="display: flex; justify-content: center; margin-bottom: 1rem;"><img src="data:image/png;base64,{logo_base64}" width="150"></div>', unsafe_allow_html=True)
         st.markdown("---")
         topic = st.selectbox("Select Screen Mode", list(MANUAL_CONTENT.keys()))
+        # NOTE: Content in MANUAL_CONTENT is pure markdown (no HTML tags), so
+        # unsafe_allow_html is unnecessary here. Enabling it routes rendering
+        # through react-markdown's rehype-raw pipeline, which fails to reconcile
+        # the DOM when switching between topics with different structures,
+        # raising "NotFoundError: Failed to execute 'removeChild' on 'Node'".
+        # Rendering as plain markdown avoids that crash.
         with st.container():
-            st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
+            st.markdown(MANUAL_CONTENT[topic])
 
     if logo_base64: st.markdown(f'<div style="display: flex; justify-content: center; margin-top: 1rem; margin-bottom: 2rem;"><img src="data:image/png;base64,{logo_base64}" width="220"></div>', unsafe_allow_html=True)
 
@@ -1046,7 +1052,7 @@ def main():
     with st.expander("📁 1. Global Settings (Upload Spreadsheet)", expanded=True):
         def reset_results_on_upload():
             if 'filtered_result' in st.session_state: del st.session_state['filtered_result']
-                                    st.session_state.filtered_df = filtered_dfif 'filtered_df' in st.session_state: del st.session_state['filtered_df']
+            if 'filtered_df' in st.session_state: del st.session_state['filtered_df']
             if 'stratified_results' in st.session_state: del st.session_state['stratified_results']
             if 'analysis_params' in st.session_state: del st.session_state['analysis_params']
             if 'analysis_results' in st.session_state: del st.session_state['analysis_results']
@@ -1127,6 +1133,9 @@ def main():
                         file_bytes = to_excel(filtered_df) if is_excel else to_csv(filtered_df)
                         timestamp = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M%S")
                         st.session_state.filtered_result = (file_bytes, f"Filtered_Sheet_{timestamp}.{'xlsx' if is_excel else 'csv'}")
+                        # Keep the filtered DataFrame in memory so it can feed the
+                        # Stratification Tool directly (no download/re-upload round-trip).
+                        # It is a subset of the original (<= rows) and is cleared on new upload.
                         st.session_state.filtered_df = filtered_df
                     else: st.success("No rows remaining after filters applied.")
         if 'filtered_result' in st.session_state:
@@ -1139,6 +1148,9 @@ def main():
         st.markdown('<div class="card-content-area">', unsafe_allow_html=True)
 
         if df is not None:
+            # --- DATA SOURCE SELECTOR (original upload vs. last filtered result) ---
+            # Lets the user run the analysis/stratification on the sheet just produced
+            # by the Filter Tool without downloading and re-uploading it.
             source_df = df
             if st.session_state.get('filtered_df') is not None:
                 choice = st.radio(
@@ -1232,19 +1244,19 @@ def main():
                                 sub_df = source_df[source_df[st.session_state.col_sexo].astype(str) == str(sex_val)].copy()
                                 if sub_df.empty: continue
 
-                                df_possiveis, df_ideais, cuts_ideais, h_activated = run_harris_boyd(source_df, st.session_state.col_idade, st.session_state.col_dados, p['ref_limits_list'], "All")
+                                df_possiveis, df_ideais, cuts_ideais, h_activated = run_harris_boyd(sub_df, st.session_state.col_idade, st.session_state.col_dados, p['ref_limits_list'], str(sex_val))
                                 if h_activated: any_haeckel_activated_at_all = True
 
-                                max_age_full = int(pd.to_numeric(source_df[st.session_state.col_idade], errors='coerce').max())
+                                max_age_sub = int(pd.to_numeric(sub_df[st.session_state.col_idade], errors='coerce').max())
                                 titulo_metodo_2 = "EDA Haeckel (Practical approach)" if h_activated else "Empirical Analysis of Dispersion and Means (Empirical approach)"
 
                                 hboyd_render_data.append({
                                     'sex_val': str(sex_val),
                                     'df_possiveis_age': df_possiveis['age'].tolist() if not df_possiveis.empty else [],
                                     'cuts_ideais': cuts_ideais,
-                                    'max_age': max_age_full,
+                                    'max_age': max_age_sub,
                                     'titulo_metodo_2': titulo_metodo_2,
-                                    'sub_df': source_df
+                                    'sub_df': sub_df
                                 })
 
                                 if not df_possiveis.empty:
@@ -1252,9 +1264,9 @@ def main():
                                 if not df_ideais.empty:
                                     df_i = df_ideais.copy(); df_i.insert(0, 'Sex', str(sex_val)); df_ideais_global_list.append(df_i)
                         else:
-                            df_possiveis, df_ideais, cuts_ideais, h_activated = run_harris_boyd(df, st.session_state.col_idade, st.session_state.col_dados, p['ref_limits_list'], "All")
+                            df_possiveis, df_ideais, cuts_ideais, h_activated = run_harris_boyd(source_df, st.session_state.col_idade, st.session_state.col_dados, p['ref_limits_list'], "All")
                             if h_activated: any_haeckel_activated_at_all = True
-                            max_age_full = int(pd.to_numeric(df[st.session_state.col_idade], errors='coerce').max())
+                            max_age_full = int(pd.to_numeric(source_df[st.session_state.col_idade], errors='coerce').max())
                             titulo_metodo_2 = "EDA Haeckel (Practical approach)" if h_activated else "Empirical Analysis of Dispersion and Means (Empirical approach)"
 
                             hboyd_render_data.append({
@@ -1263,7 +1275,7 @@ def main():
                                 'cuts_ideais': cuts_ideais,
                                 'max_age': max_age_full,
                                 'titulo_metodo_2': titulo_metodo_2,
-                                'sub_df': df
+                                'sub_df': source_df
                             })
 
                             if not df_possiveis.empty: df_possiveis_global_list.append(df_possiveis)
