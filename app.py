@@ -1037,7 +1037,8 @@ def main():
         if logo_base64: st.markdown(f'<div style="display: flex; justify-content: center; margin-bottom: 1rem;"><img src="data:image/png;base64,{logo_base64}" width="150"></div>', unsafe_allow_html=True)
         st.markdown("---")
         topic = st.selectbox("Select Screen Mode", list(MANUAL_CONTENT.keys()))
-        st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
+        with st.container():
+            st.markdown(MANUAL_CONTENT[topic], unsafe_allow_html=True)
 
     if logo_base64: st.markdown(f'<div style="display: flex; justify-content: center; margin-top: 1rem; margin-bottom: 2rem;"><img src="data:image/png;base64,{logo_base64}" width="220"></div>', unsafe_allow_html=True)
 
