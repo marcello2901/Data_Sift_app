@@ -63,6 +63,33 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# --------------------------------------------------------------------------- #
+# Conformidade LGPD / GDPR — o usuário precisa marcar a checkbox antes de usar.
+# Replicado da tela inicial do app.py ("Terms of Use and Data Protection...").
+# Usa a mesma chave de sessão (lgpd_accepted): aceitar uma vez vale para o app.
+# --------------------------------------------------------------------------- #
+GDPR_TERMS = """
+This tool is designed to process and filter data from spreadsheets. The files you upload may contain sensitive personal data (such as full name, date of birth, national ID numbers, health information, etc.), the processing of which is regulated by data protection laws like the General Data Protection Regulation (GDPR or LGPD).
+
+It is your sole responsibility to ensure that all data used in this tool complies with applicable data protection regulations. We strongly recommend that you only use previously anonymized data to protect the privacy of data subjects.
+
+The responsibility for the nature of the processed data is exclusively yours.
+
+To proceed, you must confirm that the data to be used has been properly handled and anonymized.
+"""
+
+if "lgpd_accepted" not in st.session_state:
+    st.session_state.lgpd_accepted = False
+
+if not st.session_state.lgpd_accepted:
+    st.header("Terms of Use and Data Protection Compliance")
+    st.markdown(GDPR_TERMS)
+    accepted = st.checkbox("By checking this box, I confirm that the data provided is anonymized.")
+    if st.button("Continue", type="primary", disabled=not accepted):
+        st.session_state.lgpd_accepted = True
+        st.rerun()
+    st.stop()
+
 
 # --------------------------------------------------------------------------- #
 # 1. Normalização numérica (decimais com "," ou ".", milhar, unidades, etc.)
@@ -522,10 +549,6 @@ if not dois_relatorios:
             _uv = st.selectbox("Usuário de validação do 1º resultado", opc, index=0, key="valid1")
             col_valid1 = None if _uv == "(nenhuma)" else _uv
 
-        z_opt = st.selectbox("Nível de confiança (Z)",
-                             ["95% bilateral (Z = 1,96)", "95% unilateral (Z = 1,65)"], index=0)
-        z = 1.96 if "1,96" in z_opt else 1.65
-
     if col_r1 == col_r2:
         st.warning("R1 e R2 estão apontando para a mesma coluna. Selecione colunas diferentes.")
         st.stop()
@@ -571,25 +594,25 @@ else:
             ts1 = st.selectbox("Teste/exame", cols1,
                                index=_guess_idx(cols1, ["teste", "exame", "analito", "prova"]), key="ts1")
         with a3:
-            res1 = st.selectbox("Resultado → R1", cols1,
+            res1 = st.selectbox("Resultado → R1 (1º Resultado/Resultado suspeito)", cols1,
                                 index=_guess_idx(cols1, ["result", "valor", "dosagem"]), key="res1")
         opc1 = ["(nenhuma)"] + cols1
         a4, a5, a6 = st.columns(3)
         with a4:
-            _d1 = st.selectbox("Data do R1 (opcional)", opc1, index=0, key="data1")
+            _d1 = st.selectbox("Data do 1º Resultado (opcional)", opc1, index=0, key="data1")
             data1 = None if _d1 == "(nenhuma)" else _d1
         with a5:
-            _h1 = st.selectbox("Hora do R1 (opcional)", opc1, index=0, key="hora1")
+            _h1 = st.selectbox("Hora do 1º Resultado (opcional)", opc1, index=0, key="hora1")
             hora1 = None if _h1 == "(nenhuma)" else _h1
         with a6:
             _rf1 = st.selectbox("Intervalo de referência (opcional)", opc1, index=0, key="ref1b")
             ref1 = None if _rf1 == "(nenhuma)" else _rf1
         a7, a8, a9 = st.columns(3)
         with a7:
-            _eq1 = st.selectbox("Equipamento do R1 (opcional)", opc1, index=0, key="eq1b")
+            _eq1 = st.selectbox("Equipamento do 1º Resultado (opcional)", opc1, index=0, key="eq1b")
             eq1 = None if _eq1 == "(nenhuma)" else _eq1
         with a8:
-            _ra1 = st.selectbox("Resultado anterior do R1 (opcional)", opc1, index=0, key="ra1b")
+            _ra1 = st.selectbox("Resultado anterior (opcional)", opc1, index=0, key="ra1b")
             ra1 = None if _ra1 == "(nenhuma)" else _ra1
         with a9:
             _ida1 = st.selectbox("Idade do paciente (opcional)", opc1, index=0, key="ida1b")
@@ -599,7 +622,7 @@ else:
             _sex1 = st.selectbox("Sexo do paciente (opcional)", opc1, index=0, key="sex1b")
             sex1 = None if _sex1 == "(nenhuma)" else _sex1
         with a11:
-            _uv1 = st.selectbox("Usuário de validação do R1 (opcional)", opc1, index=0, key="valid1b")
+            _uv1 = st.selectbox("Usuário de validação do 1º Resultado (opcional)", opc1, index=0, key="valid1b")
             valid1 = None if _uv1 == "(nenhuma)" else _uv1
 
         st.markdown("**Relatório da repetição (R2)**")
@@ -611,16 +634,12 @@ else:
             ts2 = st.selectbox("Teste/exame", cols2,
                                index=_guess_idx(cols2, ["teste", "exame", "analito", "prova"]), key="ts2")
         with b3:
-            res2 = st.selectbox("Resultado → R2", cols2,
+            res2 = st.selectbox("Resultado → R2 (Repetição)", cols2,
                                 index=_guess_idx(cols2, ["result", "valor", "dosagem"]), key="res2")
         b4, _b5 = st.columns(2)
         with b4:
-            _eq2 = st.selectbox("Equipamento do R2 (opcional)", ["(nenhuma)"] + cols2, index=0, key="eq2b")
+            _eq2 = st.selectbox("Equipamento do R2 - Repetição (opcional)", ["(nenhuma)"] + cols2, index=0, key="eq2b")
             eq2 = None if _eq2 == "(nenhuma)" else _eq2
-
-        z_opt = st.selectbox("Nível de confiança (Z)",
-                             ["95% bilateral (Z = 1,96)", "95% unilateral (Z = 1,65)"], index=0)
-        z = 1.96 if "1,96" in z_opt else 1.65
 
     extras1_map = {}
     for _nm, _cl in [("Equip. R1", eq1), ("R1 anterior", ra1), ("Idade", ida1),
@@ -682,7 +701,7 @@ if col_analito and col_analito != "(nenhuma)":
 extras = {}
 if col_data and col_data in df_uso.columns:
     _dd = pd.to_datetime(df_uso[col_data], errors="coerce", dayfirst=True)
-    extras["Data R1"] = _dd.dt.strftime("%d/%m/%Y").fillna("").values
+    extras["Data 1º Resultado"] = _dd.dt.strftime("%d/%m/%Y").fillna("").values
 if col_hora and col_hora in df_uso.columns:
     extras["Hora R1"] = df_uso[col_hora].astype(str).replace({"NaT": "", "nan": ""}).values
 for _nome, _col in [("Equip. R1", col_equip1), ("Equip. R2", col_equip2),
@@ -695,7 +714,7 @@ for _nome, _col in [("Equip. R1", col_equip1), ("Equip. R2", col_equip2),
 # ---- Cálculo -------------------------------------------------------------- #
 datahora = montar_datahora(df_uso, col_data, col_hora)
 base, resumo = calcular_metricas(df_uso, col_r1, col_r2, col_id=col_id,
-                                 datahora=datahora, extras=extras, z=z)
+                                 datahora=datahora, extras=extras)
 
 if resumo["n_validos"] == 0:
     st.error(
@@ -773,13 +792,13 @@ else:
 
 # --- Classificação e situação combinada ---
 if tem_ref:
-    base["Interp_R1"] = base.apply(lambda r: classificar_ref(r["R1"], r["_lo"], r["_hi"]), axis=1)
-    base["Interp_R2"] = base.apply(lambda r: classificar_ref(r["R2"], r["_lo"], r["_hi"]), axis=1)
-    base["Mudou_interp"] = ((base["Interp_R1"] != base["Interp_R2"])
-                            & (base["Interp_R1"] != "—") & (base["Interp_R2"] != "—"))
+    base[" Interpretação 1º Resultado"] = base.apply(lambda r: classificar_ref(r["R1"], r["_lo"], r["_hi"]), axis=1)
+    base[" Interpretação Repetição"] = base.apply(lambda r: classificar_ref(r["R2"], r["_lo"], r["_hi"]), axis=1)
+    base["Mudou_interp"] = ((base[" Interpretação 1º Resultado"] != base[" Interpretação Repetição"])
+                            & (base[" Interpretação 1º Resultado"] != "—") & (base[" Interpretação Repetição"] != "—"))
 else:
-    base["Interp_R1"] = "—"
-    base["Interp_R2"] = "—"
+    base[" Interpretação 1º Resultado"] = "—"
+    base[" Interpretação Repetição"] = "—"
     base["Mudou_interp"] = False
 
 base["Situacao"] = np.where(base["Suspeito_erro"] | base["Mudou_interp"], "Suspeito", "OK")
@@ -813,11 +832,11 @@ else:
 
 # --- Tabela consolidada (com as colunas adicionais informadas) ---
 tab3 = base.rename(columns={
-    "ID": "Código de barras", "Interp_R1": "Interpretação R1",
-    "Interp_R2": "Interpretação R2", "ETA_%": "(R1−R2)/R1 %",
+    "ID": "Código de barras", " Interpretação 1º Resultado": "Interpretação R1",
+    " Interpretação Repetição": "Interpretação R2", "ETA_%": "(R1−R2)/R1 %",
     "Situacao": "Situação",
 })
-cols_extra = [c for c in ["Data R1", "Hora R1", "Equip. R1", "Equip. R2",
+cols_extra = [c for c in ["Data 1º Resultado", "Hora R1", "Equip. R1", "Equip. R2",
                           "R1 anterior", "Idade", "Sexo", "Usuário validação R1"]
               if c in tab3.columns]
 cols_interp = ["Interpretação R1", "Interpretação R2"] if tem_ref else []
@@ -840,7 +859,7 @@ if tem_ref:
     with st.expander("🔀 Matriz de transição (R1 → R2)"):
         st.caption("Quantas amostras foram de cada interpretação em R1 (linhas) para "
                    "cada interpretação em R2 (colunas). A diagonal são as que não mudaram.")
-        st.dataframe(pd.crosstab(base["Interp_R1"], base["Interp_R2"],
+        st.dataframe(pd.crosstab(base[" Interpretação 1º Resultado"], base[" Interpretação Repetição"],
                                  rownames=["R1"], colnames=["R2"]),
                      use_container_width=True)
 
@@ -955,15 +974,15 @@ cols_2dec = [c for c in ["DP_par", "CV_par_%", "ETA_%"]
 for _c in cols_2dec:
     export[_c] = pd.to_numeric(export[_c], errors="coerce").round(2)
 # Ordem desejada (nomes internos); o restante segue na ordem atual.
-_lead = [c for c in ["ID", "Idade", "Sexo", "R1", "R2", "R1 anterior", "Data R1",
+_lead = [c for c in ["ID", "Idade", "Sexo", "R1", "R2", "R1 anterior", "Data 1º Resultado",
                      "Hora R1", "Equip. R1", "Equip. R2", "RefRange",
                      "Usuário validação R1"] if c in export.columns]
 _rest = [c for c in export.columns if c not in _lead]
 export = export[_lead + _rest]
 export = export.rename(columns={
     "ID": "Código de barras", "R1": "1º Resultado", "R2": "Repetição",
-    "R1 anterior": "Resultado anterior", "Equip. R1": "Equipamento R1",
-    "Equip. R2": "Equipamento R2",
+    "R1 anterior": "Resultado anterior", "Equip. R1": "Equipamento 1º Resultado",
+    "Equip. R2": "Equipamento Repetição",
 })
 
 d1, d2 = st.columns(2)
