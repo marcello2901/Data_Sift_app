@@ -21,6 +21,8 @@ Página do app DataSift (pasta ``pages/``). Também roda de forma independente c
 import io
 import os
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -291,6 +293,7 @@ def gerar_pdf(detalhe: pd.DataFrame, equipamento: str, operador: str, data_probl
     como no app). Cabeçalho com equipamento, operador e data/hora. Usa reportlab.
     """
     from datetime import datetime
+    from zoneinfo import ZoneInfo
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.units import mm
     from reportlab.lib import colors
@@ -357,8 +360,9 @@ def gerar_pdf(detalhe: pd.DataFrame, equipamento: str, operador: str, data_probl
     tab.setStyle(TableStyle(estilo))
 
     cab = (f"Equipamento: {equipamento} &nbsp;&nbsp;|&nbsp;&nbsp; Operador: {operador or '—'} "
-           f"&nbsp;&nbsp;|&nbsp;&nbsp; Gerado em {datetime.now():%d/%m/%Y %H:%M} "
-           f"&nbsp;&nbsp;|&nbsp;&nbsp; Data do problema: {data_problema or '—'}")
+           f"&nbsp;&nbsp;|&nbsp;&nbsp; Data do problema: {data_problema or '—'}"
+           f"&nbsp;&nbsp;|&nbsp;&nbsp; Relatório gerado em "
+           f"{datetime.now(ZoneInfo('America/Sao_Paulo')):%d/%m/%Y %H:%M} ")
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=pagina, leftMargin=10 * mm, rightMargin=10 * mm,
                             topMargin=12 * mm, bottomMargin=10 * mm, title="Análise de Impacto")
@@ -561,18 +565,25 @@ export.insert(0, "Equipamento", equip_sel)
 export.insert(0, "Operador", operador)
 export["Erro total %"] = export["Erro total %"].round(2)
 
+# Nome padrão dos arquivos: "Análise de Impacto [equipamento] - [data DD-MM-AAAA]".
+# A data é a do problema (seção 2); se vazia, usa a data de geração (hoje, Brasília).
+_data_arq = (data_problema.strftime("%d-%m-%Y") if data_problema
+             else datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d-%m-%Y"))
+_nome_arq = re.sub(r'[\\/:*?"<>|]+', "-",
+                   f"Análise de Impacto {equip_sel} - {_data_arq}").strip()
+
 d1, d2, d3 = st.columns(3)
 with d1:
     st.download_button("⬇️ Baixar (Excel)",
                        data=to_excel(export, cols_2dec=["Erro total %", "Resultado 1", "Resultado 2"]),
-                       file_name="analise_impacto.xlsx",
+                       file_name=f"{_nome_arq}.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 with d2:
     csv_bytes = export.to_csv(index=False, sep=";", decimal=",", encoding="utf-8-sig").encode("utf-8-sig")
     st.download_button("⬇️ Baixar (CSV)", data=csv_bytes,
-                       file_name="analise_impacto.csv", mime="text/csv")
+                       file_name=f"{_nome_arq}.csv", mime="text/csv")
 with d3:
     data_prob_txt = data_problema.strftime("%d/%m/%Y") if data_problema else ""
     st.download_button("⬇️ Baixar (PDF)",
                        data=gerar_pdf(tab, equip_sel, operador, data_prob_txt),
-                       file_name="analise_impacto.pdf", mime="application/pdf")
+                       file_name=f"{_nome_arq}.pdf", mime="application/pdf")
