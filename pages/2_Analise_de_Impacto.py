@@ -486,9 +486,42 @@ with st.container(border=True):
         "Perfil (opcional) — ao escolher, já carrega todos os testes do perfil",
         ["(nenhum)"] + list(PERFIS.keys()), key="perfil_sel")
     if perfil_sel == "(nenhum)":
+        if st.session_state.get("_perfil_aplicado"):
+            # Voltou para "(nenhum)": desfaz o perfil e restaura os testes que
+            # existiam antes de aplicá-lo (limpando os blocos criados pelo perfil).
+            for bid in list(st.session_state.imp_blocos):
+                st.session_state.pop(f"teste_{bid}", None)
+                for k in [k for k in list(st.session_state.keys())
+                          if k == f"am_{bid}" or k.startswith(f"am_{bid}__")]:
+                    st.session_state.pop(k, None)
+            bkp = (st.session_state.get("_perfil_backup")
+                   or {"imp_blocos": [1], "imp_next": 2, "estados": {}})
+            st.session_state.imp_blocos = list(bkp["imp_blocos"])
+            st.session_state.imp_next = bkp["imp_next"]
+            # Restaura os testes escolhidos nos blocos que existiam antes do perfil
+            # (o Streamlit descarta o estado de widgets que deixam de ser renderizados).
+            for k, v in bkp.get("estados", {}).items():
+                st.session_state[k] = v
+            st.session_state["_perfil_res"] = {}
+            st.session_state["_perfil_aplicado"] = None
+            st.session_state["_perfil_faltantes"] = []
+            st.rerun()
         st.session_state["_perfil_aplicado"] = None
         st.session_state["_perfil_faltantes"] = []
     elif st.session_state.get("_perfil_aplicado") != perfil_sel:
+        if not st.session_state.get("_perfil_aplicado"):
+            # Guarda o estado atual (antes do perfil) para restaurar ao voltar a "(nenhum)":
+            # ids dos blocos, próximo id e o teste escolhido em cada bloco. (O conteúdo
+            # das tabelas de amostras não pode ser reatribuído via session_state — regra
+            # do Streamlit para o data_editor — então restauramos a estrutura e os testes.)
+            estados = {f"teste_{bid}": st.session_state[f"teste_{bid}"]
+                       for bid in st.session_state.imp_blocos
+                       if f"teste_{bid}" in st.session_state}
+            st.session_state["_perfil_backup"] = {
+                "imp_blocos": list(st.session_state.imp_blocos),
+                "imp_next": st.session_state.imp_next,
+                "estados": estados,
+            }
         achados, faltantes = [], []
         for nome in PERFIS[perfil_sel]:
             m = _match_teste(nome, testes)
@@ -604,6 +637,26 @@ if st.button("➕ Adicionar teste"):
     st.session_state.imp_blocos.append(st.session_state.imp_next)
     st.session_state.imp_next += 1
     st.rerun()
+
+# ---- Processar análise ---------------------------------------------------- #
+# A análise (seções 4 e 5) só roda depois de clicar em "Processar análise".
+# Uma assinatura leve das entradas indica se o que está na tela ainda corresponde
+# ao que foi processado; enquanto o usuário digita, a assinatura muda e nada é
+# recalculado (evita travamentos ao preencher vários testes).
+_assinatura = "\n".join(
+    [str(equip_sel), str(operador), str(data_problema)]
+    + [f"{t[0]}::{t[7].to_csv(index=False)}" for t in blocos_dados]
+)
+
+st.markdown("")
+if st.button("🔎 Processar análise", type="primary"):
+    st.session_state["imp_proc_sig"] = _assinatura
+
+if st.session_state.get("imp_proc_sig") != _assinatura:
+    st.info("Preencha os resultados e clique em **🔎 Processar análise** para gerar as "
+            "seções **4 · Resultado** e **5 · Exportar**. Enquanto você digita, nada é "
+            "processado — clique novamente sempre que alterar algum dado.")
+    st.stop()
 
 # ---- Cálculo (todos os blocos) -------------------------------------------- #
 partes, avisos = [], []
